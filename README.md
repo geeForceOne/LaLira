@@ -2,7 +2,11 @@
 
 Simple, self-hosted bookkeeping for your accounts. Each account has a currency, a starting balance and a list of money in and out with a running balance; earlier years are summed up as their year-end balance. Recurring bookings book themselves, even after the app was down, and a report arrives by email when the month is over.
 
-- **Accounts and positions**: money in or out, a date and a description. The current year shows every position; older years show one 31.12. line that opens on click.
+![The overview: totals per currency, every account with its balance and this month's money in and out, and the recurring bookings coming up](docs/images/lalira-overview.jpg)
+
+![An account: the entry row for new positions, and the list with its running balance](docs/images/lalira-account.jpg)
+
+- **Accounts and positions**: a date, a description and an amount (a minus means money out), typed straight into the list. The current year shows every position; older years show one 31.12. line that opens on click.
 - **Recurring positions**: weekly, monthly, quarterly or yearly, with placeholders such as `Einzahlung {month}` → "Einzahlung Oktober". Missed dates are booked with their own date as soon as the app is back.
 - **Email reports**: monthly, quarterly or yearly, for the accounts you include.
 - **CSV import and export**, with a preview and duplicate detection.
