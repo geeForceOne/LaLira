@@ -1,0 +1,53 @@
+@* The app's mark: a balance line climbing over the double rule that closes a ledger total, with a
+   gold coin at the newest value. Below 40 px a simpler line with fewer, bolder points is drawn,
+   since the full one blurs at header and favicon sizes. wwwroot/favicon.svg is the simple mark
+   with fixed colors; keep the two in step.
+   wwwroot/js/brand-motion.js animates it (draw, roll, tally, flip): once when the sidebar or
+   sign-in logo is hovered or focused, once when a PlayOnLoad logo appears, and in a loop while
+   Busy. It only animates existing elements, so Blazor's rendering isn't disturbed. *@
+@{ var m = Size >= 40 ? Full : Simple; }
+<svg class="brand-mark" width="@Size" height="@Size" viewBox="0 0 64 64" aria-hidden="true"
+     data-motion="@(Busy ? "loop" : PlayOnLoad ? "once" : null)">
+    @foreach (var y in m.Rules)
+    {
+        <line class="bm-rule" x1="10" y1="@N(y)" x2="54" y2="@N(y)" stroke="var(--brand)" stroke-width="@N(m.RuleWidth)" stroke-opacity=".55" stroke-linecap="round" />
+    }
+    <polyline class="bm-trend" points="@Points(m)" fill="none" stroke="var(--brand)" stroke-width="@N(m.Line)" stroke-linejoin="round" stroke-linecap="round" />
+    @for (var i = 0; i < m.P.Length - 1; i++)
+    {
+        <circle class="bm-node" cx="@N(m.P[i].X)" cy="@N(m.P[i].Y)" r="@N(m.Node)" fill="var(--brand)" />
+        <circle class="bm-glow" cx="@N(m.P[i].X)" cy="@N(m.P[i].Y)" r="@N(m.Node * 1.35)" fill="var(--brand-lit)" opacity="0" />
+    }
+    <circle class="bm-halo" cx="@N(m.P[^1].X)" cy="@N(m.P[^1].Y)" r="@N(m.Coin * 1.7)" fill="var(--brand-lit)" fill-opacity=".18" />
+    <g class="bm-coin">
+        <circle cx="@N(m.P[^1].X)" cy="@N(m.P[^1].Y)" r="@N(m.Coin)" fill="var(--brand-lit)" />
+        <circle cx="@N(m.P[^1].X)" cy="@N(m.P[^1].Y)" r="@N(m.Coin * 0.6)" fill="none" stroke="var(--brand-rim)" stroke-width="@N(m.RimWidth)" stroke-opacity=".55" />
+    </g>
+</svg>
+
+@code {
+    private sealed record Mark((double X, double Y)[] P, double[] Rules, double Line, double RuleWidth, double Node, double Coin, double RimWidth);
+
+    // The newest value (last point) carries the coin.
+    private static readonly Mark Full = new(
+        [(10, 42), (21, 34), (31, 38), (42, 24), (52, 15)], [50, 55],
+        Line: 3.2, RuleWidth: 2.2, Node: 2.7, Coin: 6.2, RimWidth: 1.1);
+
+    private static readonly Mark Simple = new(
+        [(9, 42), (25, 31), (36, 37), (52, 16)], [51, 58],
+        Line: 4.8, RuleWidth: 3.4, Node: 3.6, Coin: 8.4, RimWidth: 1.6);
+
+    // SVG wants a decimal point whatever the page's number format is ("6,2" would be dropped).
+    private static string N(double value) => value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string Points(Mark m) =>
+        string.Join(" ", m.P.Select(p => FormattableString.Invariant($"{p.X},{p.Y}")));
+
+    [Parameter] public int Size { get; set; } = 30;
+
+    // Loops the animation, for the busy indicator.
+    [Parameter] public bool Busy { get; set; }
+
+    // Plays one motion shortly after the logo appears, for the sign-in page.
+    [Parameter] public bool PlayOnLoad { get; set; }
+}

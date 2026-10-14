@@ -1,0 +1,166 @@
+@page "/"
+@inherits AppPage
+@inject OverviewService Overview
+@inject AccountService Accounts
+@inject RecurringService Recurring
+@inject SettingsService Settings
+
+<PageTitle>@T["Overview"] · @AppInfo.Name</PageTitle>
+
+<div class="page-head">
+    <div>
+        <p class="eyebrow">@(_view is null ? "" : Format.DateWithDay(_view.Today))</p>
+        <h1>@T["Overview"]</h1>
+    </div>
+    <div class="page-actions">
+        <button type="button" class="btn btn-primary" @onclick="NewAccountAsync"><Icon Name="plus" Size="16" /> @T["New account"]</button>
+    </div>
+</div>
+
+@if (_view is null)
+{
+    <p class="page-loading">…</p>
+}
+else
+{
+    @if (_view.CaughtUp > 0)
+    {
+        <div class="notice notice-info notice-row" role="status">
+            <Icon Name="clock" />
+            <span>@T.Plural(_view.CaughtUp, "{0} recurring booking was made late, with its own date, because the app wasn't running on that day.", "{0} recurring bookings were made late, with their own dates, because the app wasn't running on those days.")</span>
+            <button type="button" class="btn btn-ghost btn-sm" @onclick="DismissCaughtUpAsync">@T["OK"]</button>
+        </div>
+    }
+
+    @if (_view.Accounts.Count == 0)
+    {
+        <div class="empty">
+            <BrandMark Size="72" PlayOnLoad="true" />
+            <h2>@T["Start with your first account"]</h2>
+            <p>@T["An account has a name, a currency and a starting balance. Then add money in and out, or set up recurring positions that book themselves."]</p>
+            <button type="button" class="btn btn-primary" @onclick="NewAccountAsync"><Icon Name="plus" Size="16" /> @T["New account"]</button>
+        </div>
+    }
+    else
+    {
+        <section class="totals" aria-label="@T["Totals"]">
+            @foreach (var t in _view.Totals)
+            {
+                var decimals = _view.Accounts.Where(a => a.Account.Currency == t.Currency).All(a => a.Account.ShowDecimals);
+                <div class="total">
+                    <div class="total-label">@T["Total"] <span class="code">@t.Currency</span></div>
+                    <div class="total-value num @(t.Balance < 0 ? "neg" : "")">@Format.Money(t.Balance, decimals)</div>
+                    <div class="total-flow">
+                        <span title="@T["Money in this month"]"><span class="flow-label">@T["In"]</span> <span class="num">@Format.Money(t.MonthIn, decimals)</span></span>
+                        <span title="@T["Money out this month"]"><span class="flow-label">@T["Out"]</span> <span class="num">@Format.Money(t.MonthOut, decimals)</span></span>
+                    </div>
+                </div>
+            }
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>@T["Accounts"]<span class="count">@_view.Accounts.Count</span></h2>
+                <span class="muted small">@T["In and out: this month so far"]</span>
+            </div>
+            <div class="acct-grid">
+                @foreach (var c in _view.Accounts)
+                {
+                    <a class="acct-card" href="@($"accounts/{c.Account.Id}")" @key="c.Account.Id">
+                        <div class="acct-top">
+                            <span class="acct-name"><span class="acct-icon"><Icon Name="@c.Account.Icon" Size="16" /></span>@c.Account.Name</span>
+                            <span class="code">@c.Account.Currency</span>
+                        </div>
+                        <div class="acct-balance num @(c.BalanceToday < 0 ? "neg" : "")">@Format.Money(c.BalanceToday, c.Account)</div>
+                        <Sparkline Values="c.MonthEndBalances" Label="@T["Balance over the last 12 months"]" />
+                        <div class="acct-flow">
+                            <span><span class="flow-label">@T["In"]</span> <span class="num">@Format.Money(c.MonthIn, c.Account)</span></span>
+                            <span><span class="flow-label">@T["Out"]</span> <span class="num">@Format.Money(c.MonthOut, c.Account)</span></span>
+                            @if (c.UpcomingCount > 0)
+                            {
+                                <span class="tag" title="@T["Positions dated after today"]">@T.Plural(c.UpcomingCount, "{0} upcoming", "{0} upcoming")</span>
+                            }
+                        </div>
+                    </a>
+                }
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>@T["Coming up"]</h2>
+                <a class="btn btn-ghost btn-sm" href="recurring">@T["Recurring positions"] <Icon Name="right" Size="14" /></a>
+            </div>
+            @if (_upcoming.Count == 0)
+            {
+                <p class="muted">@T["No recurring bookings in the next 31 days."] <a href="recurring">@T["Set one up"]</a></p>
+            }
+            else
+            {
+                <table class="table upcoming-table">
+                    <tbody>
+                        @foreach (var u in _upcoming)
+                        {
+                            <tr>
+                                <td class="nowrap num muted">@Format.Date(u.Date)</td>
+                                <td>
+                                    <div>@u.Description</div>
+                                    <div class="muted small">@u.AccountName</div>
+                                </td>
+                                <td class="num amount">@Format.Money(u.Amount, u.ShowDecimals) <span class="code">@u.Currency</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </section>
+    }
+}
+
+<AccountDialog @ref="_accountDialog" />
+
+@code {
+    private OverviewView? _view;
+    private IReadOnlyList<UpcomingBooking> _upcoming = [];
+    private AccountDialog _accountDialog = default!;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var userId = await UserIdAsync();
+        _view = await Overview.GetAsync(userId, PageToken);
+        _upcoming = await Recurring.UpcomingAsync(userId, 31, 8, PageToken);
+    }
+
+    private async Task NewAccountAsync()
+    {
+        var userId = await UserIdAsync();
+        var today = _view?.Today ?? DateOnly.FromDateTime(DateTime.Today);
+        var regional = new System.Globalization.RegionInfo(T.Format.Name).ISOCurrencySymbol;
+        var currency = _view?.Accounts.FirstOrDefault()?.Account.Currency ?? (Currencies.IsKnown(regional) ? regional : "CHF");
+        AccountInfo? created = null;
+        var ok = await _accountDialog.AskAsync(null, today, currency, async input =>
+        {
+            try
+            {
+                created = await Accounts.CreateAsync(userId, input, PageToken);
+                return null;
+            }
+            catch (InputException ex)
+            {
+                return ErrorText(ex);
+            }
+        });
+        if (!ok || created is null) return;
+        Ui.Toast.Success(T["Account {0} created.", created.Name]);
+        await Ui.RefreshAccountsAsync();
+        Nav.NavigateTo($"accounts/{created.Id}");
+    }
+
+    private async Task DismissCaughtUpAsync()
+    {
+        await Overview.DismissCaughtUpAsync(await UserIdAsync(), PageToken);
+        await LoadAsync();
+    }
+}

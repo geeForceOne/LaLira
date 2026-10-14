@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LaLira.Core/LaLira.Core.csproj" />
+    <Project Path="src/LaLira.Web/LaLira.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LaLira.Tests/LaLira.Tests.csproj" />
+  </Folder>
+</Solution>

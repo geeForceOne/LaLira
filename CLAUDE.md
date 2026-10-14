@@ -1,0 +1,88 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+LaLira is a multi-user, Docker-hosted, very simple bookkeeping web app. It follows the architecture and patterns of its sibling project Recall (D:\Programming\LearningPortal) and reuses its user handling.
+
+- **Accounts.** A user has any number of accounts. Each has a name, an icon (from a fixed set, AccountIcons), a currency (all active ISO 4217 codes, Currencies, picked from a dropdown with the common ones first), a starting balance, an opening date, a "Show decimals" switch, and an "Include in email reports" switch. Accounts can be deleted (typed confirmation), not archived.
+- **Simplicity is key.** The user's own words: prefer inline, fast flows over dialogs and extra steps.
+- **Positions.** A position is an amount, a date and a description, nothing more. The sign decides the direction: `250` is money in, `-100` (or `- 100`) money out; there is no In/Out switch anywhere. Positions are added in an entry row on the account page (date, description, amount; Enter adds, the row stays ready for the next one) and changed in place by clicking a row (Enter saves, Escape cancels, delete with a confirmation). No position dialog. Any date on or after the opening date; future-dated positions show as "upcoming" and don't count in today's balance.
+- **Account view.** Newest first. Each row shows amount, description, date and the running balance after it. The current year shows all its positions; every older year collapses into one "31.12.YYYY" row with the year-end balance, which expands in place on click. The starting balance is the first (oldest) row ("Opening balance").
+- **Amounts.** Stored exactly (integer minor units, never floating point). With "Show decimals" off, an account's amounts are rounded for display only. In and out are both shown in neutral ink; only the minus sign tells them apart.
+- **Totals.** One total per currency (no exchange rates).
+- **Overview (start page).** Totals per currency, a card per account (balance, this month's in and out, a small balance sparkline), and the next upcoming recurring bookings. Catch-up notices appear here.
+- **CSV.** Import per account with a preview (columns, date and number format detected, duplicates flagged) before anything is booked; export of an account's positions.
+- **Recurring positions.** A rule has an amount (in/out), a description template, a schedule (weekly, monthly on day N with "last day" for 31, quarterly, yearly; each "every N periods"), a start date, an optional end date, and a language for placeholders (defaults to the user's). Placeholders: `{month}`, `{monthshort}`, `{year}`, `{quarter}`, `{date}` (region format), `{prevmonth}`, `{prevyear}`. "Einzahlung {month}" books "Einzahlung Oktober".
+- **Catch-up and backfill.** Every due occurrence is booked exactly once, with its original date. Occurrences missed while the app was down are booked when it's back, and the overview says so ("3 bookings caught up"). A rule whose start date is in the past always backfills its past dates.
+- **Email reports.** A user defines reports with a frequency (monthly, quarterly, yearly). A report covers the accounts with "Include in email reports" on and lists every booking in the period per account with opening and closing balance. It goes only to the user's own email, in their language and region format, at 07:00 their time on the first day after the period (after that day's bookings). Missed reports are caught up.
+- **Time zone.** Per user, default Europe/Zurich (prefilled from the browser). It decides when that user's bookings and reports run. The container itself runs on UTC.
+- **Backup and restore.** Admin-only, for the whole instance: database plus Data Protection keys in a .zip. A daily automatic backup goes to `/data/backups` (time and how many to keep, default 14, set in Admin settings), plus "Download backup now" with an optional password (AES). Before an existing database gets a newer schema (an app update), startup writes a `before-update-…` backup first; if that fails, the app doesn't migrate and stops with a critical log message. Restore: upload a .zip or pick an automatic backup; the app validates it, saves a safety backup of the current state, swaps the data in and restarts itself (Docker's restart policy brings it back). Users have CSV export for their own accounts.
+- **Homepage widget.** Per user: each user creates their own API token in Settings (only its SHA-256 hash is stored). `GET /api/homepage/...` with an `X-API-Key` header returns that user's money in and out for the current month, per currency.
+- **Language and formats.** Two separate per-user settings, both defaulting from the browser: UI language (English, German) and region format (de-CH, de-DE, de-AT, en-US, en-GB, ...), which sets thousands separator, decimal mark and date format. English UI with Swiss formatting is a normal combination. English texts use American spelling; German texts use Swiss spelling ("ss", never "ß"). Emails follow the recipient's settings.
+- **Responsive.** Designed mainly for PC use but must work well on tablets and phones. Installable as a PWA (manifest, icons, iOS install hint, no offline mode).
+
+### Taken over from Recall
+- **Accounts and sign-in.** No open sign-up. The first user to register becomes the admin; after that the admin creates accounts and invites by email. Login with email and password, forgot password. Everyone has a display name (required at setup, in New user and on Profile). Admin pages (Users, Admin settings, Backups) are reached from the user menu only, not the sidebar. Admins can let people request an account from the sign-in page (off by default, needs email); the admin approves (invite sent) or declines. Users page as a sortable table (create, make admin, delete). Per-admin "Notify me when invited users join". Each user's data is private, with no sharing in v1 (keep the model open for adding shared accounts later).
+- **Admin settings.** SMTP server with a test email, notifications, account requests, time and retention for automatic backups, backup and restore.
+- **What's new.** After an update, each user sees a banner ("LaLira was updated to X.Y.Z") linking to the release notes page, built from `CHANGELOG.md`.
+- No dedication line on the sign-in page.
+
+### Wording
+- The user's own login is a "user" with a **Profile** page (`/profile`); "account" always means a ledger account. German UI: formal "Sie", Swiss spelling, Swiss banking terms: Konto, Buchung (position), Dauerauftrag (recurring position), Saldo, Anfangssaldo, vorgemerkt (upcoming), Eingang/Ausgang (in/out). Quotes in German texts are «guillemets».
+- Only a negative balance is tinted; amounts in and out are plain ink.
+
+## Commands
+
+```
+dotnet build LaLira.slnx                   # build everything
+dotnet run --project src/LaLira.Web        # run the app locally (port 5336, data in ./data)
+dotnet test tests/LaLira.Tests             # unit tests, incl. the German-translation check
+docker compose up --build                  # build and run the container (host port 8336)
+dotnet ef migrations add <Name> --project src/LaLira.Core --startup-project src/LaLira.Web --output-dir Data/Migrations
+```
+
+## Workflow
+
+When the user gives feedback or requests changes in a back-and-forth (bug reports, tweaks, "also do X"), don't implement each one immediately as it comes in. Acknowledge it, queue it, and keep gathering. Only start making changes once the user explicitly says "go" (or an equally unambiguous confirmation). Purely informational questions can still be answered right away.
+
+## Git workflow
+
+Never run `git commit` or `git push` unless the user explicitly asks for it in that turn. A commit approval does not imply a push approval, and approval from an earlier turn does not carry forward to later changes. Every change starts on its own branch off an up-to-date main; after a merge, pull main, delete merged branches (`-d`) and `git fetch --prune`. Commit as `geeForceOne <1780268+geeForceOne@users.noreply.github.com>`, never with a real name or Gmail. Write commit messages that explain why.
+
+Nothing secret is ever committed: databases, Data Protection keys, backups, `.env`, local settings. Check staged files before every commit.
+
+## Architecture
+
+Latest .NET (currently .NET 10, `net10.0`), Blazor Server, `.slnx` solution. Business logic is kept reusable by a future Android or iOS app; this version is web-only, so don't build mobile clients or public APIs until asked (the homepage widget endpoint is the one exception).
+
+- **`src/LaLira.Core`** (class library, no dependency on the web UI): domain models, EF Core persistence, booking and balance logic, recurring rules and placeholder rendering, the scheduler's job logic, email reports, CSV import/export, backup/restore, email sending. Every query is scoped by the user's ID. Long-running methods take an `IProgress<string>?` and a `CancellationToken`; no console or UI I/O in Core.
+- **`src/LaLira.Web`** (Blazor Server, interactive server render mode, prerendering off): UI, Identity, hosting, the hosted service that drives the scheduler, localization resources.
+- **Scheduler.** A built-in hosted service (no Hangfire/Quartz) wakes every minute and runs due jobs: recurring bookings, email reports, automatic backups. Each job stores its next due time in the database, and each occurrence is booked exactly once (idempotent, safe across crashes and restarts).
+
+### Hosting and data
+- **SQLite** through EF Core. Everything persistent (database, Data Protection keys, backups) lives under one data directory, a Docker **volume** at `/data`, never in the image. Paths come from `Storage__*` environment variables.
+- Container listens on 8080; `docker-compose.yml` maps host port 8336.
+- The image is built by GitHub Actions on `vX.Y.Z` tags and pushed to `ghcr.io/geeforceone/lalira`.
+
+### Authentication
+- ASP.NET Core Identity with email and password, in the same SQLite database; the email is the Identity UserName. Keep it structured so external logins (Google, Apple, Facebook) can be added later.
+
+### Secrets
+- The SMTP password is stored encrypted with Data Protection. A value that can no longer be decrypted counts as "not set" and the UI says it needs to be entered again.
+
+## Conventions
+
+- **Verify external APIs, don't work from memory.** Check current official docs before coding against a library or service.
+- **Shared dialogs.** Reusable, awaitable `ConfirmDialog`, `PromptDialog` and `Toast` components in `Components/Shared/`. Clicking outside a dialog never closes it; Cancel (or Escape where offered) does.
+- **Hand-written CSS design system** in `wwwroot/css/app.css`, no component library. It looks and feels like professional accounting software: figures in tabular numerals and right-aligned. Dark-first with a light theme; each user picks Dark (default), Light or System in Settings, rendered as `<html data-theme>`. Responsive at desktop, tablet and phone widths. Every page uses the full page width (`--page-max`); only small controls size to their content.
+- **Logo.** A balance line climbing over a ledger's double rule, with a gold coin at the newest value (the "lit dot", like Recall's). It is animated with four motions: draw, roll, tally, flip. The header logo plays one on hover, the sign-in logo plays one on load, and the busy indicator loops. Small sizes get thicker lines and the favicon gets its own simplified drawing. Nothing moves under `prefers-reduced-motion`.
+- **Localized everything.** No hard-coded UI or email text. Texts are keyed by their English wording: `T["..."]`, `T["... {0}", x]` and `T.Plural(n, one, many)` (the `Texts` service; Core emails get a `Texts` for the recipient), with German in `src/LaLira.Core/Localization/de.json`. Core throws `InputException`/`NotFoundException` with an English message that pages translate. The test `EveryTextHasAGermanTranslation` fails when a German entry is missing. Numbers and dates are always formatted with the person's region format (`Format`, `Money`), never the server culture; money is stored as `long` cents.
+- **Language per request.** `UserCultureProvider` sets the UI culture from the user's language and the culture from their region format; a circuit keeps the cultures it started with, so changing them reloads the page.
+- **Dates and times are entered in the region format**: use `DateField` / `TimeField` (text fields parsed by `DateInput`, with the browser's picker behind a calendar button), never a bare `<input type="date">` or `type="time"`, which show the browser's language instead.
+- **Table cells are never `display: flex`** (it breaks the row lines); put a `<div class="row-actions">` inside the cell.
+- **Migrations are never regenerated or edited once they exist**, not even before the first release: the user's local `./data` database records them by ID. A schema change is always a new migration (2026-10-14: regenerating InitialCreate broke the user's dev database with "table already exists").
+- **Gotcha:** numbers written into SVG attributes must use the invariant culture (`FormattableString.Invariant`, `ToString(CultureInfo.InvariantCulture)`); with de-DE formatting "6.2" becomes "6,2" and the shape disappears.
+- **Gotcha:** a component callback passed as a plain `Func<...>` (not EventCallback) doesn't re-render the parent; call StateHasChanged after it changes state.
+- **Gotcha:** don't name a component parameter `Assets`; it collides with `ComponentBase.Assets` in .NET 10.

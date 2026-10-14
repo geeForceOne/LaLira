@@ -1,0 +1,16 @@
+@page "/release-notes"
+@attribute [AllowAnonymous]
+@inject Texts T
+
+<PageTitle>@T["Release notes"] · @AppInfo.Name</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>@T["Release notes"]</h1>
+        <p class="page-sub">@T["What changed in each version of {0}.", AppInfo.Name]</p>
+    </div>
+</div>
+
+<article class="release-notes">
+    @((MarkupString)ReleaseNotes.Html)
+</article>

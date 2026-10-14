@@ -1,0 +1,107 @@
+@page "/recurring"
+@inherits AppPage
+@inject RecurringService Recurring
+@inject AccountService Accounts
+@inject UserClock Clock
+
+<PageTitle>@T["Recurring positions"] · @AppInfo.Name</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>@T["Recurring positions"]</h1>
+        <p class="page-sub">@T["Bookings {0} makes on its own, on their dates. If the app wasn't running on a date, the booking is made as soon as it's back, with its own date.", AppInfo.Name]</p>
+    </div>
+    <div class="page-actions">
+        <button type="button" class="btn btn-primary" disabled="@(_accounts.Count == 0)" @onclick="() => EditAsync(null)"><Icon Name="plus" Size="16" /> @T["New recurring position"]</button>
+    </div>
+</div>
+
+@if (_rules is null)
+{
+    <p class="page-loading">…</p>
+}
+else if (_accounts.Count == 0)
+{
+    <div class="empty">
+        <h2>@T["Create an account first"]</h2>
+        <p>@T["Recurring positions book into an account."]</p>
+        <a class="btn btn-primary" href="">@T["Go to the overview"]</a>
+    </div>
+}
+else if (_rules.Count == 0)
+{
+    <div class="empty">
+        <Icon Name="repeat" Size="40" />
+        <h2>@T["No recurring positions yet"]</h2>
+        <p>@T["For example a deposit of 250 on the 1st of every month, described as \"Deposit {month}\"."]</p>
+        <button type="button" class="btn btn-primary" @onclick="() => EditAsync(null)"><Icon Name="plus" Size="16" /> @T["New recurring position"]</button>
+    </div>
+}
+else
+{
+    <section class="section">
+        <RuleList Rules="_rules" OnEdit="EditAsync" />
+    </section>
+
+    <section class="section">
+        <div class="section-head"><h2>@T["Placeholders"]</h2></div>
+        <p class="muted small">@T["Use these in a description; they're filled in with the booking date, month names in the language you pick for the rule."]</p>
+        <dl class="placeholders">
+            @foreach (var (placeholder, meaning) in DescriptionTemplate.Placeholders)
+            {
+                <dt><code>@placeholder</code></dt>
+                <dd>@T[meaning] · <span class="muted">@DescriptionTemplate.Render(placeholder, _today, T.Language, T.Format)</span></dd>
+            }
+        </dl>
+    </section>
+}
+
+<RuleDialog @ref="_dialog" />
+
+@code {
+    private IReadOnlyList<RuleView>? _rules;
+    private IReadOnlyList<AccountInfo> _accounts = [];
+    private DateOnly _today;
+    private RuleDialog _dialog = default!;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var userId = await UserIdAsync();
+        _today = await Clock.TodayAsync(userId, PageToken);
+        _accounts = await Accounts.ListAsync(userId, PageToken);
+        _rules = await Recurring.ListAsync(userId, null, PageToken);
+    }
+
+    private async Task EditAsync(RuleView? existing)
+    {
+        var userId = await UserIdAsync();
+        var booked = 0;
+        var ok = await _dialog.AskAsync(_accounts, null, existing, _today, T.Language, async input =>
+        {
+            try
+            {
+                booked = existing is null
+                    ? (await Recurring.CreateAsync(userId, input, PageToken)).Booked
+                    : (await Recurring.UpdateAsync(userId, existing.Id, input, PageToken)).Booked;
+                return null;
+            }
+            catch (Exception ex) when (ex is InputException or NotFoundException)
+            {
+                return ErrorText(ex);
+            }
+        }, existing is null ? null : async () =>
+        {
+            if (!await Ui.Confirm.AskAsync(T["Delete this recurring position?"], T["Positions it already booked stay."], T["Delete"], danger: true))
+                return false;
+            return await RunAsync(() => Recurring.DeleteAsync(userId, existing.Id, PageToken));
+        });
+        if (!ok) return;
+        Ui.Toast.Success(booked > 0
+            ? T.Plural(booked, "Saved. {0} position was booked right away.", "Saved. {0} positions were booked right away.")
+            : T["Recurring position saved."]);
+        await LoadAsync();
+        await Ui.RefreshAccountsAsync();
+    }
+}

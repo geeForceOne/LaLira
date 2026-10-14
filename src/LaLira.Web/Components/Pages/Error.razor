@@ -1,0 +1,28 @@
+@page "/Error"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout MainLayout
+@using System.Diagnostics
+@inject Texts T
+
+<PageTitle>@T["Error"] · @AppInfo.Name</PageTitle>
+
+<div class="empty">
+    <h2>@T["Something went wrong"]</h2>
+    <p>@T["The request couldn't be completed. Try again; if it keeps happening, the server log has the details."]</p>
+    @if (!string.IsNullOrEmpty(RequestId))
+    {
+        <p class="muted small">@T["Request ID"]: <code>@RequestId</code></p>
+    }
+    <a class="btn btn-secondary" href="">@T["Go to the overview"]</a>
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

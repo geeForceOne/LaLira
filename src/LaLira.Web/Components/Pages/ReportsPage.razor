@@ -1,0 +1,166 @@
+@page "/reports"
+@using LaLira.Core.Email
+@inherits AppPage
+@inject ReportService Reports
+@inject AccountService Accounts
+@inject SettingsService Settings
+@inject EmailSettingsService EmailSettings
+@inject UserAdminService Users
+
+<PageTitle>@T["Reports"] · @AppInfo.Name</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>@T["Email reports"]</h1>
+        <p class="page-sub">@T["An overview of every booking in the period, per account, with opening and closing balance. It goes to your email at 07:00 on the first day after the period."]</p>
+    </div>
+</div>
+
+@if (_reports is null)
+{
+    <p class="page-loading">…</p>
+}
+else
+{
+    @if (!_emailOn)
+    {
+        <div class="notice notice-warn">@T["This server can't send email yet, so reports wait until an administrator sets it up under Admin settings."]</div>
+    }
+
+    <div class="settings">
+        <section class="setting">
+            <div class="setting-intro">
+                <h2>@T["Your reports"]</h2>
+                <p>@T["Sent to {0}.", _email ?? "–"] <a href="profile">@T["Change"]</a></p>
+            </div>
+            <div class="setting-body">
+                @if (_reports.Count == 0)
+                {
+                    <p class="muted">@T["No reports yet."]</p>
+                }
+                else
+                {
+                    <ul class="report-list">
+                        @foreach (var r in _reports)
+                        {
+                            <li class="report @(r.IsActive ? "" : "paused")" @key="r.Id">
+                                <div class="report-main">
+                                    <div class="report-title"><Icon Name="mail" Size="16" /> @Format.Period(T, r.Period)</div>
+                                    <div class="muted small">
+                                        @if (r.IsActive)
+                                        {
+                                            @T["Next: {0} to {1}, sent {2}", Format.Date(r.NextPeriod.Start), Format.Date(r.NextPeriod.End), Format.Date(DateOnly.FromDateTime(r.NextSendLocal))]
+                                        }
+                                        else
+                                        {
+                                            @T["Paused"]
+                                        }
+                                        @if (r.LastSentAt is { } sent)
+                                        {
+                                            <span> · @T["last sent {0}", Format.DateTime(sent, _timeZone)]</span>
+                                        }
+                                    </div>
+                                    @if (r.LastError is not null && r.IsActive)
+                                    {
+                                        <div class="field-error">@T["Couldn't be sent: {0} It's tried again every hour.", T[r.LastError]]</div>
+                                    }
+                                </div>
+                                <div class="report-actions">
+                                    <button type="button" class="btn btn-ghost btn-sm" disabled="@(Busy || !_emailOn)" title="@T["Sends the last complete period now, without changing the schedule."]" @onclick="() => SendNowAsync(r)"><Icon Name="send" Size="15" /> @T["Send now"]</button>
+                                    <button type="button" class="btn btn-ghost btn-sm" disabled="@Busy" @onclick="() => ToggleAsync(r)">
+                                        <Icon Name="@(r.IsActive ? "pause" : "play")" Size="15" /> @(r.IsActive ? T["Pause"] : T["Resume"])
+                                    </button>
+                                    <button type="button" class="btn btn-ghost btn-sm btn-icon btn-danger-text" disabled="@Busy" aria-label="@T["Delete"]" title="@T["Delete"]" @onclick="() => DeleteAsync(r)"><Icon Name="trash" Size="15" /></button>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                }
+                <div class="actions">
+                    @foreach (var p in new[] { ReportPeriod.Monthly, ReportPeriod.Quarterly, ReportPeriod.Yearly })
+                    {
+                        if (_reports.All(r => r.Period != p))
+                        {
+                            <button type="button" class="btn btn-secondary" disabled="@Busy" @onclick="() => AddAsync(p)"><Icon Name="plus" Size="16" /> @Format.Period(T, p)</button>
+                        }
+                    }
+                </div>
+            </div>
+        </section>
+
+        <section class="setting">
+            <div class="setting-intro">
+                <h2>@T["Accounts in reports"]</h2>
+                <p>@T["Switch \"Include in email reports\" in an account's settings."]</p>
+            </div>
+            <div class="setting-body">
+                @if (_accounts.Count == 0)
+                {
+                    <p class="muted">@T["No accounts yet."]</p>
+                }
+                else
+                {
+                    <ul class="plain-list">
+                        @foreach (var a in _accounts)
+                        {
+                            <li>
+                                <Icon Name="@(a.IncludeInReports ? "check" : "x")" Size="15" />
+                                <a href="@($"accounts/{a.Id}")">@a.Name</a>
+                                <span class="muted small">@(a.IncludeInReports ? T["included"] : T["not included"])</span>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<ReportView>? _reports;
+    private IReadOnlyList<AccountInfo> _accounts = [];
+    private bool _emailOn;
+    private string? _email;
+    private string _timeZone = Regions.DefaultTimeZone;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var userId = await UserIdAsync();
+        _emailOn = await EmailSettings.IsConfiguredAsync(PageToken);
+        _email = (await Users.FindAsync(userId))?.Email;
+        _timeZone = (await Settings.GetAsync(userId, PageToken)).TimeZone;
+        _accounts = await Accounts.ListAsync(userId, PageToken);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => _reports = await Reports.ListAsync(await UserIdAsync(), PageToken);
+
+    private async Task AddAsync(ReportPeriod period)
+    {
+        var userId = await UserIdAsync();
+        if (await RunAsync(async () => { await Reports.CreateAsync(userId, period, PageToken); await LoadAsync(); }))
+            Ui.Toast.Success(T["{0} report added.", Format.Period(T, period)]);
+    }
+
+    private async Task ToggleAsync(ReportView r)
+    {
+        var userId = await UserIdAsync();
+        await RunAsync(async () => { await Reports.SetActiveAsync(userId, r.Id, !r.IsActive, PageToken); await LoadAsync(); });
+    }
+
+    private async Task SendNowAsync(ReportView r)
+    {
+        var userId = await UserIdAsync();
+        string to = "";
+        if (await RunAsync(async () => to = await Reports.SendNowAsync(userId, r.Id, PageToken)))
+            Ui.Toast.Success(T["Report sent to {0}.", to]);
+    }
+
+    private async Task DeleteAsync(ReportView r)
+    {
+        if (!await Ui.Confirm.AskAsync(T["Delete the {0} report?", Format.Period(T, r.Period)], T["No more emails are sent for it."], T["Delete"], danger: true))
+            return;
+        var userId = await UserIdAsync();
+        await RunAsync(async () => { await Reports.DeleteAsync(userId, r.Id, PageToken); await LoadAsync(); });
+    }
+}

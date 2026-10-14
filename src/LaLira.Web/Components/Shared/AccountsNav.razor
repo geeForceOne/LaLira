@@ -1,0 +1,45 @@
+@using System.Security.Claims
+@inject OverviewService Overview
+@inject Texts T
+
+@* The sidebar's account list with today's balances. *@
+@if (_cards.Count > 0)
+{
+    <div class="side-label">@T["Accounts"]</div>
+    <nav class="side-accounts" aria-label="@T["Accounts"]">
+        @foreach (var c in _cards)
+        {
+            <NavLink href="@($"accounts/{c.Account.Id}")" ActiveClass="active" title="@c.Account.Name">
+                <Icon Name="@c.Account.Icon" Size="16" />
+                <span class="side-account-name">@c.Account.Name</span>
+                <span class="side-account-balance @(c.BalanceToday < 0 ? "neg" : "")">@Format.Money(c.BalanceToday, c.Account)</span>
+            </NavLink>
+        }
+    </nav>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private IReadOnlyList<AccountCard> _cards = [];
+    private string? _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        _userId = state?.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        await LoadAsync();
+    }
+
+    public async Task RefreshAsync()
+    {
+        await LoadAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadAsync()
+    {
+        if (_userId is not null)
+            _cards = (await Overview.GetAsync(_userId)).Accounts;
+    }
+}

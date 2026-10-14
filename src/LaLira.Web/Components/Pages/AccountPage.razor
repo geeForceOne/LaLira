@@ -1,0 +1,390 @@
+@page "/accounts/{Id:int}"
+@inherits AppPage
+@inject LedgerService Ledger
+@inject AccountService Accounts
+@inject RecurringService Recurring
+@inject CsvService Csv
+@inject IJSRuntime JS
+
+<PageTitle>@(_view?.Account.Name ?? T["Account"]) · @AppInfo.Name</PageTitle>
+
+@if (_missing)
+{
+    <div class="empty">
+        <h2>@T["This account doesn't exist anymore"]</h2>
+        <a class="btn btn-secondary" href="">@T["Go to the overview"]</a>
+    </div>
+}
+else if (_view is null)
+{
+    <p class="page-loading">…</p>
+}
+else
+{
+    var a = _view.Account;
+    <div class="page-head">
+        <div>
+            <p class="eyebrow"><a href="">@T["Overview"]</a> / @T["Account"]</p>
+            <h1 class="account-title"><span class="acct-icon acct-icon-lg"><Icon Name="@a.Icon" Size="22" /></span>@a.Name</h1>
+            <p class="page-sub">
+                <span class="code">@a.Currency</span>
+                <span>@T["Opened {0}", Format.Date(a.OpeningDate)]</span>
+                @if (a.IncludeInReports)
+                {
+                    <span class="tag"><Icon Name="mail" Size="13" /> @T["In email reports"]</span>
+                }
+            </p>
+        </div>
+        <div class="page-actions">
+            <div class="row-menu">
+                <button type="button" class="btn btn-secondary btn-icon" aria-label="@T["More actions"]" aria-expanded="@_menu" @onclick="() => _menu = !_menu"><Icon Name="more" /></button>
+                @if (_menu)
+                {
+                    <div class="menu-scrim" @onclick="() => _menu = false"></div>
+                    <div class="menu-list" @onclick="() => _menu = false">
+                        <button type="button" @onclick="EditAccountAsync"><Icon Name="edit" Size="16" /> @T["Edit account"]</button>
+                        <button type="button" @onclick="() => EditRuleAsync(null)"><Icon Name="repeat" Size="16" /> @T["New recurring position"]</button>
+                        <a href="@($"accounts/{a.Id}/import")"><Icon Name="upload" Size="16" /> @T["Import CSV"]</a>
+                        <button type="button" @onclick="ExportAsync"><Icon Name="download" Size="16" /> @T["Export CSV"]</button>
+                        <hr />
+                        <button type="button" class="danger" @onclick="DeleteAccountAsync"><Icon Name="trash" Size="16" /> @T["Delete account"]</button>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    var current = _view.Years.FirstOrDefault(y => y.Year == _view.Today.Year);
+    <section class="balance-strip" aria-label="@T["Balance"]">
+        <div class="balance-main">
+            <div class="total-label">@T["Balance today"]</div>
+            <div class="total-value num @(_view.BalanceToday < 0 ? "neg" : "")">@Format.Money(_view.BalanceToday, a) <span class="code">@a.Currency</span></div>
+        </div>
+        @if (current is not null)
+        {
+            <div class="balance-side">
+                <div class="total-label">@T["In {0}", _view.Today.Year]</div>
+                <div class="num">@Format.Money(current.Rows.Where(r => !r.IsOpening && !r.IsUpcoming && r.Amount > 0).Sum(r => r.Amount), a)</div>
+            </div>
+            <div class="balance-side">
+                <div class="total-label">@T["Out {0}", _view.Today.Year]</div>
+                <div class="num">@Format.Money(current.Rows.Where(r => !r.IsOpening && !r.IsUpcoming && r.Amount < 0).Sum(r => r.Amount), a)</div>
+            </div>
+        }
+        @if (_view.UpcomingCount > 0)
+        {
+            <div class="balance-side">
+                <div class="total-label">@T["With upcoming"]</div>
+                <div class="num">@Format.Money(_view.BalanceWithUpcoming, a)</div>
+            </div>
+        }
+    </section>
+
+    <section class="entry-bar" aria-label="@T["New position"]">
+        <PositionEntry Account="a" Today="_view.Today" OnSave="AddAsync" AutoFocus="true" />
+    </section>
+
+    <section class="section ledger-section">
+        <table class="ledger">
+            <thead>
+                <tr>
+                    <th class="col-date">@T["Date"]</th>
+                    <th>@T["Description"]</th>
+                    <th class="num">@T["Amount"]</th>
+                    <th class="num">@T["Balance"]</th>
+                </tr>
+            </thead>
+            @foreach (var year in _view.Years)
+            {
+                var open = !year.IsPast || _openYears.Contains(year.Year);
+                <tbody class="ledger-year @(year.IsPast ? "past" : "") @(open ? "open" : "")" id="@($"year-{year.Year}")" @key="year.Year">
+                    @if (year.IsPast)
+                    {
+                        <tr class="year-row" @onclick="() => ToggleYear(year.Year)" tabindex="0" @onkeydown="e => OnYearKey(e, year.Year)"
+                            aria-expanded="@open" title="@(open ? T["Hide this year's positions"] : T["Show this year's positions"])">
+                            <td class="col-date num">@Format.Date(year.YearEnd)</td>
+                            <td>
+                                <span class="year-chevron"><Icon Name="@(open ? "down" : "right")" Size="14" /></span>
+                                <strong>@T["Year-end balance {0}", year.Year]</strong>
+                                <span class="muted small year-meta">
+                                    @T.Plural(year.PositionCount, "{0} position", "{0} positions")
+                                    @if (year.PositionCount > 0)
+                                    {
+                                        <span> · @T["in"] @Format.Money(year.In, a) · @T["out"] @Format.Money(year.Out, a)</span>
+                                    }
+                                </span>
+                            </td>
+                            <td class="num amount muted">@(year.Year == a.OpeningDate.Year ? "" : Format.Money(year.EndBalance - year.StartBalance, a, sign: true))</td>
+                            <td class="num balance"><strong>@Format.Money(year.EndBalance, a)</strong></td>
+                        </tr>
+                    }
+                    else if (_view.Years.Count(y => !y.IsPast) > 1 || year.Year != _view.Today.Year)
+                    {
+                        <tr class="year-label"><td colspan="4">@year.Year</td></tr>
+                    }
+                    @if (open)
+                    {
+                        @if (year.Rows.Count == 0 || year.Rows.All(r => r.IsOpening) && year.Year != a.OpeningDate.Year)
+                        {
+                            <tr class="ledger-empty"><td colspan="4">@T["No positions in {0} yet.", year.Year]</td></tr>
+                        }
+                        @foreach (var r in year.Rows)
+                        {
+                            if (r.IsOpening)
+                            {
+                                <tr class="ledger-row opening">
+                                    <td class="col-date num">@Format.Date(r.Date)</td>
+                                    <td>@r.Description</td>
+                                    <td class="num amount"></td>
+                                    <td class="num balance">@Format.Money(r.Balance, a)</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                if (r.PositionId == _editing)
+                                {
+                                    var row = r;
+                                    <tr class="editing" @key="r.PositionId">
+                                        <td colspan="4">
+                                            <PositionEntry Account="a" Today="_view.Today" AutoFocus="true"
+                                                           Existing="new PositionView(row.PositionId!.Value, a.Id, row.Date, row.Amount, row.Description, row.RecurringRuleId)"
+                                                           OnSave="input => UpdateAsync(row.PositionId!.Value, input)" OnCancel="() => _editing = null"
+                                                           OnDelete="() => DeleteAsync(row)" />
+                                        </td>
+                                    </tr>
+                                    continue;
+                                }
+                                <tr class="ledger-row @(r.IsUpcoming ? "upcoming" : "")" @onclick="() => _editing = r.PositionId" tabindex="0"
+                                    @onkeydown="e => OnRowKey(e, r.PositionId)" @key="r.PositionId" title="@T["Click to change"]">
+                                    <td class="col-date num">@Format.Date(r.Date)</td>
+                                    <td>
+                                        <span class="desc">@r.Description</span>
+                                        @if (r.RecurringRuleId is not null)
+                                        {
+                                            <span class="row-icon" title="@T["Booked by a recurring position"]"><Icon Name="repeat" Size="13" /></span>
+                                        }
+                                        @if (r.IsUpcoming)
+                                        {
+                                            <span class="tag tag-quiet">@T["Upcoming"]</span>
+                                        }
+                                        <span class="row-date-mobile num">@Format.Date(r.Date)</span>
+                                    </td>
+                                    <td class="num amount">@Format.Money(r.Amount, a)</td>
+                                    <td class="num balance">@Format.Money(r.Balance, a)</td>
+                                </tr>
+                            }
+                        }
+                    }
+                </tbody>
+            }
+        </table>
+    </section>
+
+    <section class="section" id="recurring">
+        <div class="section-head">
+            <h2>@T["Recurring positions"]<span class="count">@_rules.Count</span></h2>
+            <button type="button" class="btn btn-secondary btn-sm" @onclick="() => EditRuleAsync(null)"><Icon Name="plus" Size="16" /> @T["New recurring position"]</button>
+        </div>
+        @if (_rules.Count == 0)
+        {
+            <p class="muted">@T["None yet. A recurring position books itself, for example a deposit on the 1st of every month."]</p>
+        }
+        else
+        {
+            <RuleList Rules="_rules" OnEdit="EditRuleAsync" ShowAccount="false" />
+        }
+    </section>
+}
+
+<AccountDialog @ref="_accountDialog" />
+<RuleDialog @ref="_ruleDialog" />
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private LedgerView? _view;
+    private IReadOnlyList<RuleView> _rules = [];
+    private readonly HashSet<int> _openYears = [];
+    private bool _missing;
+    private bool _menu;
+    private AccountDialog _accountDialog = default!;
+    private int? _editing;
+    private RuleDialog _ruleDialog = default!;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _openYears.Clear();
+        _view = null;
+        _missing = false;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var userId = await UserIdAsync();
+            _view = await Ledger.GetAsync(userId, Id, T.Language, PageToken);
+            _rules = await Recurring.ListAsync(userId, Id, PageToken);
+        }
+        catch (NotFoundException)
+        {
+            _missing = true;
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        await LoadAsync();
+        await Ui.RefreshAccountsAsync();
+    }
+
+    private void ToggleYear(int year)
+    {
+        if (!_openYears.Remove(year))
+            _openYears.Add(year);
+    }
+
+    private void OnYearKey(KeyboardEventArgs e, int year)
+    {
+        if (e.Key is "Enter" or " ") ToggleYear(year);
+    }
+
+    private void OnRowKey(KeyboardEventArgs e, int? positionId)
+    {
+        if (e.Key == "Enter") _editing = positionId;
+    }
+
+    private async Task<string?> AddAsync(PositionInput input)
+    {
+        try
+        {
+            await Ledger.AddAsync(await UserIdAsync(), Id, input, PageToken);
+        }
+        catch (Exception ex) when (ex is InputException or NotFoundException)
+        {
+            return ErrorText(ex);
+        }
+        // An entry for an earlier year opens that year, so it can be seen.
+        if (_view is not null && input.Date.Year < _view.Today.Year)
+            _openYears.Add(input.Date.Year);
+        await ReloadAsync();
+        // Called from the entry row's callback, which doesn't re-render this page by itself.
+        StateHasChanged();
+        return null;
+    }
+
+    private async Task<string?> UpdateAsync(int positionId, PositionInput input)
+    {
+        try
+        {
+            await Ledger.UpdateAsync(await UserIdAsync(), positionId, input, PageToken);
+        }
+        catch (Exception ex) when (ex is InputException or NotFoundException)
+        {
+            return ErrorText(ex);
+        }
+        if (_view is not null && input.Date.Year < _view.Today.Year)
+            _openYears.Add(input.Date.Year);
+        _editing = null;
+        await ReloadAsync();
+        // Called from the entry row's callback, which doesn't re-render this page by itself.
+        StateHasChanged();
+        return null;
+    }
+
+    private async Task DeleteAsync(LedgerRow row)
+    {
+        if (_view is null || row.PositionId is not { } id) return;
+        if (!await Ui.Confirm.AskAsync(T["Delete this position?"], $"{row.Description} · {Format.Date(row.Date)} · {Format.Money(row.Amount, _view.Account)}", T["Delete"], danger: true))
+            return;
+        var userId = await UserIdAsync();
+        if (await RunAsync(() => Ledger.DeleteAsync(userId, id, PageToken)))
+        {
+            _editing = null;
+            await ReloadAsync();
+        }
+    }
+
+    private async Task EditAccountAsync()
+    {
+        if (_view is null) return;
+        var userId = await UserIdAsync();
+        var ok = await _accountDialog.AskAsync(_view.Account, _view.Today, _view.Account.Currency, async input =>
+        {
+            try
+            {
+                await Accounts.UpdateAsync(userId, Id, input, PageToken);
+                return null;
+            }
+            catch (Exception ex) when (ex is InputException or NotFoundException)
+            {
+                return ErrorText(ex);
+            }
+        });
+        if (!ok) return;
+        Ui.Toast.Success(T["Account saved."]);
+        await ReloadAsync();
+    }
+
+    private async Task DeleteAccountAsync()
+    {
+        if (_view is null) return;
+        var a = _view.Account;
+        var count = _view.Years.Sum(y => y.PositionCount);
+        if (!await Ui.Confirm.AskAsync(T["Delete {0}?", a.Name],
+                T.Plural(count, "The account, its {0} position and its recurring positions are deleted. This can't be undone.",
+                    "The account, its {0} positions and its recurring positions are deleted. This can't be undone."),
+                T["Delete account"], danger: true, typedConfirmation: a.Name))
+            return;
+        var userId = await UserIdAsync();
+        if (await RunAsync(() => Accounts.DeleteAsync(userId, Id, PageToken)))
+        {
+            Ui.Toast.Success(T["{0} deleted.", a.Name]);
+            await Ui.RefreshAccountsAsync();
+            Nav.NavigateTo("");
+        }
+    }
+
+    private async Task EditRuleAsync(RuleView? existing)
+    {
+        if (_view is null) return;
+        var userId = await UserIdAsync();
+        var accounts = await Accounts.ListAsync(userId, PageToken);
+        var booked = 0;
+        var ok = await _ruleDialog.AskAsync(accounts, Id, existing, _view.Today, T.Language, async input =>
+        {
+            try
+            {
+                booked = existing is null
+                    ? (await Recurring.CreateAsync(userId, input, PageToken)).Booked
+                    : (await Recurring.UpdateAsync(userId, existing.Id, input, PageToken)).Booked;
+                return null;
+            }
+            catch (Exception ex) when (ex is InputException or NotFoundException)
+            {
+                return ErrorText(ex);
+            }
+        }, existing is null ? null : async () =>
+        {
+            if (!await Ui.Confirm.AskAsync(T["Delete this recurring position?"], T["Positions it already booked stay."], T["Delete"], danger: true))
+                return false;
+            return await RunAsync(() => Recurring.DeleteAsync(userId, existing.Id, PageToken));
+        });
+        if (!ok) return;
+        Ui.Toast.Success(booked > 0
+            ? T.Plural(booked, "Saved. {0} position was booked right away.", "Saved. {0} positions were booked right away.")
+            : T["Recurring position saved."]);
+        await ReloadAsync();
+    }
+
+    private async Task ExportAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var (name, content) = await Csv.ExportAsync(await UserIdAsync(), Id, T, PageToken);
+            using var stream = new DotNetStreamReference(new MemoryStream(content));
+            await JS.InvokeVoidAsync("lalira.download", name, "text/csv", stream);
+        });
+    }
+}

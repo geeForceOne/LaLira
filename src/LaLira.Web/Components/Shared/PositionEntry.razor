@@ -1,0 +1,130 @@
+@inject Texts T
+
+@* Entering a position in one row, in the same order as the list: date, description, amount.
+   A minus in front of the amount means money out. Used for adding (above the list, stays open
+   for the next one) and for changing a position in place (inside its row). *@
+<form class="entry @(Existing is null ? "entry-new" : "entry-edit")" @onsubmit="SubmitAsync" @onsubmit:preventDefault="true" @onkeydown="OnKeyDown">
+    <div class="entry-fields">
+        <span class="entry-date"><DateField Value="_date" ValueChanged="d => { if (d is { } v) _date = v; }" Label="@T["Date"]" /></span>
+        <input class="input entry-desc" @bind="_description" @bind:event="oninput" maxlength="@Position.MaxDescriptionLength"
+               placeholder="@T["Description"]" aria-label="@T["Description"]" autocomplete="off" @ref="_descriptionInput" />
+        <input class="input input-amount entry-amount" @bind="_amount" @bind:event="oninput" placeholder="@T["250 or -100"]"
+               aria-label="@T["Amount"]" autocomplete="off" spellcheck="false" />
+        <div class="entry-actions">
+            <button type="submit" class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_amount) || string.IsNullOrWhiteSpace(_description))">
+                @if (Existing is null)
+                {
+                    <Icon Name="plus" Size="16" /> @T["Add"]
+                }
+                else
+                {
+                    <Icon Name="check" Size="16" /> @T["Save"]
+                }
+            </button>
+            @if (Existing is not null)
+            {
+                <button type="button" class="btn btn-ghost btn-icon" title="@T["Cancel"]" aria-label="@T["Cancel"]" @onclick="OnCancel"><Icon Name="x" Size="16" /></button>
+                @if (OnDelete is not null)
+                {
+                    <button type="button" class="btn btn-ghost btn-icon btn-danger-text" title="@T["Delete"]" aria-label="@T["Delete"]" disabled="@_busy" @onclick="DeleteAsync"><Icon Name="trash" Size="16" /></button>
+                }
+            }
+        </div>
+    </div>
+    @if (_error is not null)
+    {
+        <div class="field-error">@_error</div>
+    }
+    else if (Existing?.RecurringRuleId is not null)
+    {
+        <p class="field-hint"><Icon Name="repeat" Size="13" /> @T["Booked by a recurring position. Changing it here changes only this one."]</p>
+    }
+    else if (_date > Today)
+    {
+        <p class="field-hint"><Icon Name="clock" Size="13" /> @T["Dated in the future: it shows as upcoming and counts from that day."]</p>
+    }
+    else if (Existing is null)
+    {
+        <p class="field-hint">@T["A minus in front of the amount books money out. Enter adds the position."]</p>
+    }
+</form>
+
+@code {
+    [Parameter, EditorRequired] public AccountInfo Account { get; set; } = default!;
+    [Parameter, EditorRequired] public DateOnly Today { get; set; }
+
+    // The position being changed; null for the entry row that adds new ones.
+    [Parameter] public PositionView? Existing { get; set; }
+
+    // Returns an error to show, or null when saved.
+    [Parameter, EditorRequired] public Func<PositionInput, Task<string?>> OnSave { get; set; } = default!;
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public Func<Task>? OnDelete { get; set; }
+    [Parameter] public bool AutoFocus { get; set; }
+
+    private DateOnly _date;
+    private string _description = "";
+    private string _amount = "";
+    private string? _error;
+    private bool _busy;
+    private bool _focusPending;
+    private int? _loadedFor = -1;
+    private ElementReference _descriptionInput;
+
+    protected override void OnParametersSet()
+    {
+        // Fill in once per position (or once for the entry row), not on every render.
+        if (_loadedFor == Existing?.Id) return;
+        _loadedFor = Existing?.Id;
+        _date = Existing?.Date ?? (Today < Account.OpeningDate ? Account.OpeningDate : Today);
+        _description = Existing?.Description ?? "";
+        _amount = Existing is null ? "" : Money.FormatForInput(Existing.Amount, T.Format);
+        _error = null;
+        _focusPending = AutoFocus;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusPending) return;
+        _focusPending = false;
+        try { await _descriptionInput.FocusAsync(); } catch (JSException) { }
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && Existing is not null)
+            await OnCancel.InvokeAsync();
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_busy || string.IsNullOrWhiteSpace(_description)) return;
+        if (!Money.TryParse(_amount, out var cents) || cents == 0)
+        {
+            _error = T["Enter a valid amount, like 250 or -100."];
+            return;
+        }
+        _busy = true;
+        try
+        {
+            _error = await OnSave(new PositionInput(_date, cents, _description));
+        }
+        finally
+        {
+            _busy = false;
+        }
+        if (_error is null && Existing is null)
+        {
+            // Ready for the next one: same date, empty fields, cursor in the description.
+            _description = "";
+            _amount = "";
+            _focusPending = true;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (OnDelete is not null)
+            await OnDelete();
+    }
+}

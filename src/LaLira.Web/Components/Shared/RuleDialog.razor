@@ -1,0 +1,269 @@
+@inject Texts T
+
+@* Creating or changing a recurring position, with a live preview of the next bookings. *@
+@if (_visible)
+{
+    <div class="modal-backdrop">
+        <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="rule-dialog-title" @onkeydown="OnKeyDown">
+            <h2 id="rule-dialog-title">@(_existing is null ? T["New recurring position"] : T["Edit recurring position"])</h2>
+            <form class="form" @onsubmit="SubmitAsync" @onsubmit:preventDefault="true">
+                <div class="rule-grid">
+                    <div class="rule-col">
+                        <label class="field">
+                            <span>@T["Account"]</span>
+                            <select class="select" @bind="_accountId">
+                                @foreach (var a in _accounts)
+                                {
+                                    <option value="@a.Id">@a.Name (@a.Currency)</option>
+                                }
+                            </select>
+                        </label>
+                        <label class="field">
+                            <span>@T["Amount"] <span class="muted">@Account?.Currency</span></span>
+                            <input class="input input-amount input-lg" @bind="_amount" @bind:event="oninput" autocomplete="off" placeholder="@T["250 or -100"]" @ref="_first" />
+                            <span class="field-hint">@T["A minus in front books money out."]</span>
+                        </label>
+                        <label class="field">
+                            <span>@T["Description"]</span>
+                            <input class="input" @bind="_template" @bind:event="oninput" maxlength="@Position.MaxDescriptionLength" placeholder="@T["e.g. Deposit {month}"]" @ref="_templateInput" />
+                        </label>
+                        <div class="chips" aria-label="@T["Placeholders"]">
+                            @foreach (var (placeholder, meaning) in DescriptionTemplate.Placeholders)
+                            {
+                                <button type="button" class="chip" title="@T[meaning]" @onclick="() => Insert(placeholder)">@placeholder</button>
+                            }
+                        </div>
+                        <label class="field">
+                            <span>@T["Language for month names"]</span>
+                            <select class="select" @bind="_language">
+                                <option value="en">English</option>
+                                <option value="de">Deutsch</option>
+                            </select>
+                        </label>
+                    </div>
+
+                    <div class="rule-col">
+                        <div class="field-row">
+                            <label class="field">
+                                <span>@T["Repeat"]</span>
+                                <select class="select" @bind="_frequency">
+                                    <option value="@Frequency.Weekly">@T["Weekly"]</option>
+                                    <option value="@Frequency.Monthly">@T["Monthly"]</option>
+                                    <option value="@Frequency.Quarterly">@T["Quarterly"]</option>
+                                    <option value="@Frequency.Yearly">@T["Yearly"]</option>
+                                </select>
+                            </label>
+                            <label class="field">
+                                <span>@T["Every"]</span>
+                                <input class="input input-short" type="number" min="1" max="@RecurringService.MaxInterval" @bind="_interval" />
+                            </label>
+                            @if (_frequency != Frequency.Weekly)
+                            {
+                                <label class="field">
+                                    <span>@T["On day"]</span>
+                                    <select class="select" @bind="_day">
+                                        @for (var d = 1; d <= 28; d++)
+                                        {
+                                            <option value="@d">@d</option>
+                                        }
+                                        <option value="@RuleSchedule.LastDay">@T["Last day"]</option>
+                                    </select>
+                                </label>
+                            }
+                        </div>
+                        <div class="field-row">
+                            <label class="field">
+                                <span>@T["Starts"]</span>
+                                <DateField Value="_start" ValueChanged="d => { if (d is { } v) _start = v; }" Label="@T["Starts"]" />
+                            </label>
+                            <label class="field">
+                                <span>@T["Ends"] <span class="muted">@T["(optional)"]</span></span>
+                                <DateField @bind-Value="_end" Optional="true" Label="@T["Ends"]" />
+                            </label>
+                        </div>
+                        @if (_existing is not null)
+                        {
+                            <label class="check">
+                                <input type="checkbox" @bind="_active" /> @T["Active"]
+                                <span class="check-hint">@T["When paused, nothing is booked. Switched back on, it carries on from today."]</span>
+                            </label>
+                        }
+
+                        <div class="preview">
+                            <div class="preview-label">@T["Next bookings"]</div>
+                            @if (Preview() is { Count: > 0 } next)
+                            {
+                                <ul>
+                                    @foreach (var (date, text) in next)
+                                    {
+                                        <li><span class="num">@Format.Date(date)</span> <span>@text</span> <span class="num">@AmountPreview</span></li>
+                                    }
+                                </ul>
+                            }
+                            else
+                            {
+                                <p class="muted small">@T["No booking dates in this range."]</p>
+                            }
+                            @if (BackfillCount > 0)
+                            {
+                                <p class="preview-note"><Icon Name="clock" Size="14" /> @T.Plural(BackfillCount, "{0} date from the start up to today will be booked right away.", "{0} dates from the start up to today will be booked right away.")</p>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                @if (_error is not null)
+                {
+                    <div class="field-error">@_error</div>
+                }
+                <div class="modal-actions">
+                    @if (_existing is not null && _delete is not null)
+                    {
+                        <button type="button" class="btn btn-ghost btn-danger-text modal-actions-start" disabled="@_busy" @onclick="DeleteAsync"><Icon Name="trash" Size="16" /> @T["Delete"]</button>
+                    }
+                    <button type="button" class="btn btn-ghost" @onclick="() => Resolve(false)">@T["Cancel"]</button>
+                    <button type="submit" class="btn btn-primary" disabled="@(_busy || _accounts.Count == 0 || string.IsNullOrWhiteSpace(_amount) || string.IsNullOrWhiteSpace(_template))">
+                        @(_existing is null ? T["Create"] : T["Save"])
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _visible;
+    private bool _busy;
+    private bool _focusPending;
+    private IReadOnlyList<AccountInfo> _accounts = [];
+    private int _accountId;
+    private string _amount = "";
+    private string _template = "";
+    private string _language = "en";
+    private Frequency _frequency = Frequency.Monthly;
+    private int _interval = 1;
+    private int _day = 1;
+    private DateOnly _start;
+    private DateOnly? _end;
+    private bool _active = true;
+    private DateOnly _today;
+    private string? _error;
+    private RuleView? _existing;
+    private ElementReference _first;
+    private ElementReference _templateInput;
+    private Func<RuleInput, Task<string?>> _save = default!;
+    private Func<Task<bool>>? _delete;
+    private TaskCompletionSource<bool>? _tcs;
+
+    private AccountInfo? Account => _accounts.FirstOrDefault(a => a.Id == _accountId);
+
+    public Task<bool> AskAsync(IReadOnlyList<AccountInfo> accounts, int? accountId, RuleView? existing, DateOnly today, string language,
+        Func<RuleInput, Task<string?>> save, Func<Task<bool>>? delete = null)
+    {
+        _tcs?.TrySetResult(false);
+        _accounts = accounts;
+        _existing = existing;
+        _today = today;
+        _accountId = existing?.AccountId ?? accountId ?? accounts.FirstOrDefault()?.Id ?? 0;
+        _amount = existing is null ? "" : Money.FormatForInput(existing.Amount, T.Format);
+        _template = existing?.DescriptionTemplate ?? "";
+        _language = existing?.Language ?? language;
+        _frequency = existing?.Frequency ?? Frequency.Monthly;
+        _interval = existing?.Interval ?? 1;
+        _day = existing?.DayOfMonth ?? Math.Min(today.Day, 28);
+        _start = existing?.StartDate ?? today;
+        _end = existing?.EndDate;
+        _active = existing?.IsActive ?? true;
+        _error = null;
+        _busy = false;
+        _save = save;
+        _delete = delete;
+        _visible = true;
+        _focusPending = true;
+        _tcs = new TaskCompletionSource<bool>();
+        StateHasChanged();
+        return _tcs.Task;
+    }
+
+    private RuleSchedule Schedule => new(_frequency, Math.Clamp(_interval, 1, RecurringService.MaxInterval),
+        _frequency == Frequency.Weekly ? _start.Day : _day, _start, _end);
+
+    // The next three booking dates from today (or from the start, if it's later), with their text.
+    private List<(DateOnly Date, string Text)> Preview()
+    {
+        var from = _existing?.NextDue is { } next && next > _today ? next : _start > _today ? _start : _today;
+        return Schedule.Between(from, from.AddYears(Math.Max(3, _interval * (_frequency == Frequency.Yearly ? 3 : 1)))).Take(3)
+            .Select(d => (d, DescriptionTemplate.Render(_template.Length == 0 ? "…" : _template, d, _language, T.Format)))
+            .ToList();
+    }
+
+    // How many past dates a new rule (or a changed start) books right away.
+    private int BackfillCount => _existing is null && _start <= _today ? Schedule.Between(_start, _today).Count() : 0;
+
+    private string AmountPreview => Money.TryParse(_amount, out var c) && c != 0
+        ? Money.Format(c, T.Format, Account?.ShowDecimals ?? true)
+        : "";
+
+    private void Insert(string placeholder)
+    {
+        _template = (_template.Length == 0 || _template.EndsWith(' ') ? _template : _template + " ") + placeholder;
+        _ = _templateInput.FocusAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusPending) return;
+        _focusPending = false;
+        try { await _first.FocusAsync(); } catch (JSException) { }
+    }
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") Resolve(false);
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_busy) return;
+        if (!Money.TryParse(_amount, out var cents) || cents == 0)
+        {
+            _error = T["Enter a valid amount, like 250 or -100."];
+            return;
+        }
+        var amount = cents;
+        _busy = true;
+        try
+        {
+            _error = await _save(new RuleInput(_accountId, amount, _template, _frequency, _interval, _day, _start, _end, _language, _active));
+        }
+        finally
+        {
+            _busy = false;
+        }
+        if (_error is null)
+            Resolve(true);
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_delete is null) return;
+        _visible = false;
+        StateHasChanged();
+        if (await _delete())
+            Resolve(true);
+        else
+        {
+            _visible = true;
+            StateHasChanged();
+        }
+    }
+
+    private void Resolve(bool result)
+    {
+        _visible = false;
+        var tcs = _tcs;
+        _tcs = null;
+        StateHasChanged();
+        tcs?.TrySetResult(result);
+    }
+}

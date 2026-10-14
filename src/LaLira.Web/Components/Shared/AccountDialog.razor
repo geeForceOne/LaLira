@@ -1,0 +1,154 @@
+@inject Texts T
+
+@* Creating or changing a ledger account. The page passes the save step, so a problem (an
+   opening date after existing positions, say) shows here and the dialog keeps what was typed. *@
+@if (_visible)
+{
+    <div class="modal-backdrop">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="account-dialog-title" @onkeydown="OnKeyDown">
+            <h2 id="account-dialog-title">@(_editing ? T["Edit account"] : T["New account"])</h2>
+            <form class="form" @onsubmit="SubmitAsync" @onsubmit:preventDefault="true">
+                <label class="field">
+                    <span>@T["Name"]</span>
+                    <input class="input" @bind="_name" @bind:event="oninput" maxlength="@Account.MaxNameLength" placeholder="@T["e.g. Savings account"]" @ref="_first" />
+                </label>
+                <div class="field">
+                    <span>@T["Icon"]</span>
+                    <div class="icon-pick" role="radiogroup" aria-label="@T["Icon"]">
+                        @foreach (var (key, label) in AccountIcons.All)
+                        {
+                            <button type="button" role="radio" aria-checked="@(_icon == key)" class="@(_icon == key ? "on" : "")"
+                                    title="@T[label]" aria-label="@T[label]" @onclick="() => _icon = key"><Icon Name="@key" Size="20" /></button>
+                        }
+                    </div>
+                </div>
+                <label class="field">
+                    <span>@T["Currency"]</span>
+                    <select class="select" @bind="_currency">
+                        @if (!Currencies.IsKnown(_currency))
+                        {
+                            <option value="@_currency">@_currency</option>
+                        }
+                        @foreach (var c in Currencies.Ordered)
+                        {
+                            <option value="@c.Code">@c.Code · @c.Name(T.Language)</option>
+                            if (c.Code == Currencies.Common[^1])
+                            {
+                                <option disabled>──────────</option>
+                            }
+                        }
+                    </select>
+                </label>
+                <div class="field-row">
+                    <label class="field">
+                        <span>@T["Starting balance"]</span>
+                        <input class="input input-amount" @bind="_opening" @bind:event="oninput" autocomplete="off" />
+                    </label>
+                    <label class="field">
+                        <span>@T["Opening date"]</span>
+                        <DateField Value="_openingDate" ValueChanged="d => { if (d is { } v) _openingDate = v; }" Label="@T["Opening date"]" />
+                    </label>
+                </div>
+                <span class="field-hint">@T["The balance on the opening date. Positions can't be dated before it."]</span>
+                <label class="check">
+                    <input type="checkbox" @bind="_includeInReports" /> @T["Include in email reports"]
+                </label>
+                <label class="check">
+                    <input type="checkbox" @bind="_showDecimals" /> @T["Show decimals"]
+                    <span class="check-hint">@T["Off shows whole amounts (31'833). Amounts are still kept exactly."]</span>
+                </label>
+                @if (_error is not null)
+                {
+                    <div class="field-error">@_error</div>
+                }
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-ghost" @onclick="() => Resolve(false)">@T["Cancel"]</button>
+                    <button type="submit" class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">@(_editing ? T["Save"] : T["Create account"])</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _visible;
+    private bool _editing;
+    private bool _busy;
+    private bool _focusPending;
+    private string _name = "";
+    private string _currency = "CHF";
+    private string _icon = AccountIcons.Default;
+    private string _opening = "";
+    private DateOnly _openingDate;
+    private bool _showDecimals = true;
+    private bool _includeInReports = true;
+    private string? _error;
+    private ElementReference _first;
+    private Func<AccountInput, Task<string?>> _save = default!;
+    private TaskCompletionSource<bool>? _tcs;
+
+    // save returns an error to show, or null when saved. Resolves to true once saved.
+    public Task<bool> AskAsync(AccountInfo? existing, DateOnly today, string defaultCurrency, Func<AccountInput, Task<string?>> save)
+    {
+        _tcs?.TrySetResult(false);
+        _editing = existing is not null;
+        _name = existing?.Name ?? "";
+        _currency = existing?.Currency ?? defaultCurrency;
+        _opening = existing is null ? "" : Money.FormatForInput(existing.OpeningBalance, T.Format);
+        _openingDate = existing?.OpeningDate ?? today;
+        _icon = existing?.Icon ?? AccountIcons.Default;
+        _showDecimals = existing?.ShowDecimals ?? true;
+        _includeInReports = existing?.IncludeInReports ?? true;
+        _error = null;
+        _busy = false;
+        _save = save;
+        _visible = true;
+        _focusPending = true;
+        _tcs = new TaskCompletionSource<bool>();
+        StateHasChanged();
+        return _tcs.Task;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusPending) return;
+        _focusPending = false;
+        try { await _first.FocusAsync(); } catch (JSException) { }
+    }
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") Resolve(false);
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_busy) return;
+        long opening = 0;
+        if (!string.IsNullOrWhiteSpace(_opening) && !Money.TryParse(_opening, out opening))
+        {
+            _error = T["The starting balance isn't a valid amount."];
+            return;
+        }
+        _busy = true;
+        try
+        {
+            _error = await _save(new AccountInput(_name, _currency, opening, _openingDate, _showDecimals, _includeInReports, _icon));
+        }
+        finally
+        {
+            _busy = false;
+        }
+        if (_error is null)
+            Resolve(true);
+    }
+
+    private void Resolve(bool result)
+    {
+        _visible = false;
+        var tcs = _tcs;
+        _tcs = null;
+        StateHasChanged();
+        tcs?.TrySetResult(result);
+    }
+}

@@ -1,0 +1,373 @@
+@page "/admin/users"
+@attribute [Authorize(Roles = Roles.Admin)]
+@inherits AppPage
+@inject UserAdminService Users
+@inject AccountMailService Mail
+@inject AccountRequestService Requests
+@inject AdminStatisticsService Stats
+@inject IJSRuntime JS
+
+<PageTitle>@T["Users"] · @AppInfo.Name</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>@T["Users"]</h1>
+        <p class="page-sub">@T["Create a user here and they get an invite link to choose their own password, or let people request an account for you to approve. Each person's accounts are private."]</p>
+    </div>
+    <div class="page-actions">
+        <button type="button" class="btn btn-primary" disabled="@_sending" @onclick="NewUserAsync"><Icon Name="plus" Size="16" /> @T["New user"]</button>
+    </div>
+</div>
+
+@if (_requests.Count > 0)
+{
+    <section class="section">
+        <div class="section-head"><h2>@T["Account requests"]<span class="count">@_requests.Count</span></h2></div>
+        <ul class="request-list">
+            @foreach (var r in _requests)
+            {
+                var request = r;
+                <li class="request" @key="request.Id">
+                    <div>
+                        <strong>@request.Name</strong>
+                        <div class="muted small">@request.Email · @Format.Ago(T, request.CreatedAt)</div>
+                        @if (request.Message is not null)
+                        {
+                            <p class="small request-message">@request.Message</p>
+                        }
+                    </div>
+                    <div class="row-actions">
+                        <button type="button" class="btn btn-primary btn-sm" disabled="@_sending" @onclick="() => ApproveAsync(request)">@T["Approve"]</button>
+                        <button type="button" class="btn btn-ghost btn-sm" disabled="@_sending" @onclick="() => DeclineAsync(request)">@T["Decline"]</button>
+                    </div>
+                </li>
+            }
+        </ul>
+    </section>
+}
+
+@if (_link is not null)
+{
+    <div class="notice notice-warn" role="status">
+        <strong>@_link.Title</strong>
+        <div>@_link.Reason @T["Copy the link and send it to them yourself."] @_link.Validity</div>
+        <div class="link-copy">
+            <input class="input" readonly value="@_link.Url" aria-label="@T["Link"]" onfocus="this.select()" />
+            <button type="button" class="btn btn-primary btn-sm" @onclick="CopyLinkAsync"><Icon Name="copy" Size="15" /> @T["Copy link"]</button>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" @onclick="() => _link = null">@T["Done"]</button>
+    </div>
+}
+
+<section class="section">
+    <p class="muted small">
+        @T["Counts only: you never see anyone's amounts or descriptions."]
+        @if (!_emailOn)
+        {
+            <span>@T["Email is off, so invite and reset links are shown here for you to pass on."] <a href="admin/settings">@T["Admin settings"]</a></span>
+        }
+    </p>
+
+    <div class="table-scroll">
+        <table class="table users-table">
+            <thead>
+                <tr>
+                    @SortHeader(T["Name"], Column.Name)
+                    @SortHeader(T["Role"], Column.Role)
+                    @SortHeader(T["Last active"], Column.LastActive)
+                    @SortHeader(T["Accounts"], Column.Accounts, numeric: true)
+                    @SortHeader(T["Positions"], Column.Positions, numeric: true)
+                    @SortHeader(T["Recurring"], Column.Recurring, numeric: true)
+                    @SortHeader(T["Reports"], Column.Reports, numeric: true)
+                    <th><span class="visually-hidden">@T["Actions"]</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var u in Sorted())
+                {
+                    var isMe = u.Id == _myId;
+                    var usage = Usage(u);
+                    <tr @key="u.Id">
+                        <td data-label="@T["Name"]">
+                            <span class="users-name">@u.ShownName @(isMe ? T["(you)"] : "")</span>
+                            <span class="muted small users-email">@(u.Email ?? T["No email address"])</span>
+                            @if (!u.HasPassword)
+                            {
+                                <span class="tag">@T["Invite pending"]</span>
+                            }
+                        </td>
+                        <td data-label="@T["Role"]">@(u.IsAdmin ? T["Admin"] : T["User"])</td>
+                        <td data-label="@T["Last active"]" class="nowrap">@(usage.LastActiveAt is { } active ? Format.Ago(T, active) : T["Not yet"])</td>
+                        <td data-label="@T["Accounts"]" class="num">@usage.Accounts</td>
+                        <td data-label="@T["Positions"]" class="num">@usage.Positions</td>
+                        <td data-label="@T["Recurring"]" class="num">@usage.Recurring</td>
+                        <td data-label="@T["Reports"]" class="num">@usage.Reports</td>
+                        <td class="users-actions">
+                            <div class="row-menu">
+                                <button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="@T["Actions for {0}", u.ShownName]" aria-expanded="@(_menuFor == u.Id)"
+                                        @onclick="() => _menuFor = _menuFor == u.Id ? null : u.Id"><Icon Name="more" Size="16" /></button>
+                                @if (_menuFor == u.Id)
+                                {
+                                    <div class="menu-scrim" @onclick="() => _menuFor = null"></div>
+                                    <div class="menu-list" @onclick="() => _menuFor = null">
+                                        <div class="menu-note">@T["Created {0}", Format.Ago(T, u.CreatedAt)]</div>
+                                        <button type="button" disabled="@_sending" @onclick="() => SendLinkAsync(u)">@(u.HasPassword ? T["Send reset link"] : T["Resend invite"])</button>
+                                        <button type="button" @onclick="() => EditEmailAsync(u)">@(u.Email is null ? T["Add email"] : T["Change email"])</button>
+                                        @if (!isMe)
+                                        {
+                                            <button type="button" @onclick="() => ToggleAdminAsync(u)">@(u.IsAdmin ? T["Remove admin"] : T["Make admin"])</button>
+                                            <hr />
+                                            <button type="button" class="danger" @onclick="() => DeleteAsync(u)"><Icon Name="trash" Size="16" /> @T["Delete user"]</button>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<CreateUserDialog @ref="_createDialog" />
+
+@code {
+    private sealed record LinkToShare(string Title, string Reason, string Url, string Validity);
+
+    private enum Column { Name, Role, LastActive, Accounts, Positions, Recurring, Reports }
+
+    private IReadOnlyList<UserRow> _users = [];
+    private IReadOnlyDictionary<string, UserUsage> _usage = new Dictionary<string, UserUsage>();
+    private Column _sort = Column.Name;
+    private bool _descending;
+    private string? _menuFor;
+    private string _myId = "";
+    private bool _sending;
+    private bool _emailOn;
+    private LinkToShare? _link;
+    private IReadOnlyList<AccountRequestView> _requests = [];
+    private CreateUserDialog _createDialog = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _myId = await UserIdAsync();
+        _emailOn = await Mail.EmailConfiguredAsync();
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _users = await Users.ListAsync();
+        _usage = await Stats.GetUsageAsync(PageToken);
+        _requests = await Requests.ListAsync(PageToken);
+    }
+
+    // A new user has no usage row until the page reloads; it shows as nothing done yet.
+    private UserUsage Usage(UserRow u) => _usage.GetValueOrDefault(u.Id) ?? new UserUsage(u.Id, null, 0, 0, 0, 0);
+
+    private IEnumerable<UserRow> Sorted()
+    {
+        Func<UserRow, object> key = _sort switch
+        {
+            Column.Role => u => u.IsAdmin ? 0 : 1,
+            Column.LastActive => u => Usage(u).LastActiveAt ?? DateTime.MinValue,
+            Column.Accounts => u => Usage(u).Accounts,
+            Column.Positions => u => Usage(u).Positions,
+            Column.Recurring => u => Usage(u).Recurring,
+            Column.Reports => u => Usage(u).Reports,
+            _ => u => u.ShownName.ToLowerInvariant(),
+        };
+        return _descending ? _users.OrderByDescending(key) : _users.OrderBy(key);
+    }
+
+    // Clicking the current column flips the order; a new column starts with the most useful end
+    // first (A to Z for names, admins first for roles, newest or largest first for the rest).
+    private void SortBy(Column column)
+    {
+        _descending = column == _sort ? !_descending : column is not (Column.Name or Column.Role);
+        _sort = column;
+    }
+
+    private RenderFragment SortHeader(string label, Column column, bool numeric = false) =>
+        @<th class="@(numeric ? "num" : "")" aria-sort="@(_sort != column ? "none" : _descending ? "descending" : "ascending")">
+            <button type="button" class="sort-button" @onclick="() => SortBy(column)">
+                @if (numeric)
+                {
+                    <span class="sort-mark" aria-hidden="true">@(_sort != column ? "" : _descending ? "▾ " : "▴ ")</span>@label
+                }
+                else
+                {
+                    @label<span class="sort-mark" aria-hidden="true">@(_sort != column ? "" : _descending ? " ▾" : " ▴")</span>
+                }
+            </button>
+        </th>;
+
+    // Creates the user and sends the normal invite; the request is then done.
+    private async Task ApproveAsync(AccountRequestView request)
+    {
+        _sending = true;
+        try
+        {
+            var (userId, errors) = await Users.CreateAsync(request.Email, request.Name, isAdmin: false);
+            if (userId is null)
+            {
+                Ui.Toast.Error(string.Join(" ", errors));
+                return;
+            }
+            await Requests.DeleteAsync(request.Id, PageToken);
+            await ReloadAsync();
+            await DeliverAsync(userId, request.Name, isInvite: true, T["{0} was added.", request.Name]);
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private async Task DeclineAsync(AccountRequestView request)
+    {
+        var note = await Ui.Prompt.AskAsync(T["Decline request"], T["Note to {0} (optional)", request.Name], "", T["Decline"],
+            hint: T["They get a short email saying the request wasn't approved. A note is added to it if you write one."],
+            multiline: true, allowEmpty: true);
+        if (note is null)
+            return;
+
+        _sending = true;
+        try
+        {
+            var failed = await Mail.SendRequestDeclinedAsync(request, note, PageToken);
+            await Requests.DeleteAsync(request.Id, PageToken);
+            _requests = await Requests.ListAsync(PageToken);
+            if (failed is null)
+                Ui.Toast.Success(T["Request from {0} declined. They've been told by email.", request.Name]);
+            else
+                Ui.Toast.Error(T["Request from {0} declined, but they couldn't be told: {1}", request.Name, failed]);
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private async Task NewUserAsync()
+    {
+        (string Id, string Name)? created = null;
+        var ok = await _createDialog.AskAsync(_emailOn, async input =>
+        {
+            var (userId, errors) = await Users.CreateAsync(input.Email, input.DisplayName, input.IsAdmin);
+            if (userId is not null)
+                created = (userId, AppUser.ShownNameFor(input.DisplayName, input.Email.Trim(), null));
+            return errors.ToList();
+        });
+        if (!ok || created is not { } c) return;
+
+        _sending = true;
+        try
+        {
+            await ReloadAsync();
+            await DeliverAsync(c.Id, c.Name, isInvite: true, T["{0} was added.", c.Name]);
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private async Task SendLinkAsync(UserRow u)
+    {
+        _sending = true;
+        try
+        {
+            await DeliverAsync(u.Id, u.ShownName, isInvite: !u.HasPassword, prefix: null);
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    // Emails the invite or reset link, or shows it for the admin to pass on when it can't be emailed.
+    private async Task DeliverAsync(string userId, string shownName, bool isInvite, string? prefix)
+    {
+        PasswordLinkResult result;
+        try
+        {
+            result = await Mail.SendLinkAsync(userId, Nav.BaseUri, PageToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Ui.Toast.Error(ex.Message);
+            return;
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (result.Emailed)
+        {
+            _link = null;
+            var sent = isInvite ? T["Invite sent to {0}.", result.SentTo!] : T["Password reset link sent to {0}.", result.SentTo!];
+            Ui.Toast.Success(prefix is null ? sent : $"{prefix} {sent}");
+            return;
+        }
+
+        if (prefix is not null)
+            Ui.Toast.Success(prefix);
+        var lifespan = isInvite ? AccountMailService.InviteLifespan : AccountMailService.ResetLifespan;
+        _link = new LinkToShare(
+            isInvite ? T["Invite for {0}", shownName] : T["Password reset link for {0}", shownName],
+            result.Reason ?? "",
+            result.Link!,
+            T["It works once and expires in {0}.", Core.Email.AccountEmails.Describe(T, lifespan)]);
+        await JS.InvokeVoidAsync("lalira.scrollToTop");
+    }
+
+    private async Task CopyLinkAsync()
+    {
+        if (_link is null) return;
+        if (await JS.InvokeAsync<bool>("lalira.copyText", _link.Url))
+            Ui.Toast.Success(T["Link copied."]);
+        else
+            Ui.Toast.Error(T["The browser didn't allow copying. Select the text and copy it by hand."]);
+    }
+
+    private async Task EditEmailAsync(UserRow u)
+    {
+        var email = await Ui.Prompt.AskAsync(T["Email address for {0}", u.ShownName], T["Email address"], u.Email ?? "", T["Save"],
+            hint: T["They sign in with it, and invites, reset links and reports go there."], type: "email");
+        if (email is null) return;
+
+        var errors = await Users.SetEmailAsync(u.Id, email);
+        if (errors.Count > 0)
+        {
+            Ui.Toast.Error(string.Join(" ", errors));
+            return;
+        }
+        Ui.Toast.Success(T["Email address for {0} saved.", u.ShownName]);
+        await ReloadAsync();
+    }
+
+    private async Task ToggleAdminAsync(UserRow u)
+    {
+        // Granting admin is the risky direction; removing it is easy to undo, so it doesn't ask.
+        if (!u.IsAdmin && !await Ui.Confirm.AskAsync(T["Make {0} an admin?", u.ShownName],
+                T["They'll be able to create and delete users (including you), change the email settings, and back up or restore everything."],
+                T["Make admin"], danger: true))
+            return;
+        await Users.SetAdminAsync(u.Id, !u.IsAdmin);
+        await ReloadAsync();
+    }
+
+    private async Task DeleteAsync(UserRow u)
+    {
+        if (!await Ui.Confirm.AskAsync(T["Delete {0}?", u.ShownName],
+                T["The user and all their accounts, positions, recurring positions and reports are deleted. This can't be undone."],
+                T["Delete user"], danger: true))
+            return;
+        await Users.DeleteAsync(u.Id);
+        Ui.Toast.Success(T["{0} deleted.", u.ShownName]);
+        await ReloadAsync();
+    }
+}

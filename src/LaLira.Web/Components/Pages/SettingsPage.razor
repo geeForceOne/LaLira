@@ -1,0 +1,206 @@
+@page "/settings"
+@using System.Globalization
+@inherits AppPage
+@inject SettingsService Settings
+@inject IJSRuntime JS
+
+<PageTitle>@T["Settings"] · @AppInfo.Name</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>@T["Settings"]</h1>
+        <p class="page-sub">@T["Language, formats and look. Your name, email and password are under Profile."]</p>
+    </div>
+</div>
+
+@if (_s is null)
+{
+    <p class="page-loading">…</p>
+}
+else
+{
+    <div class="settings">
+        <section class="setting">
+            <div class="setting-intro">
+                <h2>@T["Language and formats"]</h2>
+                <p>@T["The language of the app and your emails, and how numbers and dates are written. They're separate, so English with Swiss formats works too."]</p>
+            </div>
+            <div class="setting-body">
+                <form class="form" @onsubmit="SaveAsync" @onsubmit:preventDefault="true">
+                    <div class="field-row field-row-wrap">
+                        <label class="field">
+                            <span>@T["Language"]</span>
+                            <select class="select" @bind="_language">
+                                <option value="en">English</option>
+                                <option value="de">Deutsch</option>
+                            </select>
+                        </label>
+                        <label class="field">
+                            <span>@T["Region format"]</span>
+                            <select class="select" @bind="_region">
+                                @foreach (var r in Regions.RegionFormats)
+                                {
+                                    var c = CultureInfo.GetCultureInfo(r);
+                                    <option value="@r">@(char.ToUpper(c.NativeName[0], c) + c.NativeName[1..])</option>
+                                }
+                            </select>
+                        </label>
+                        <label class="field">
+                            <span>@T["Time zone"]</span>
+                            <select class="select" @bind="_timeZone">
+                                @foreach (var id in Regions.TimeZoneIdsWith(_s.TimeZone))
+                                {
+                                    <option value="@id">@id.Replace('_', ' ')</option>
+                                }
+                            </select>
+                        </label>
+                    </div>
+                    <div class="sample">
+                        <span class="muted small">@T["Example"]</span>
+                        <span class="num">@Money.Format(3183350, Regions.Culture(_region))</span>
+                        <span class="num">@Money.Format(-25000, Regions.Culture(_region))</span>
+                        <span class="num">@DateOnly.FromDateTime(DateTime.Today).ToString("d", Regions.Culture(_region))</span>
+                    </div>
+                    <p class="field-hint">@T["The time zone decides when your recurring positions are booked (just after midnight) and when reports go out (07:00)."]</p>
+                    <div class="actions">
+                        <button type="submit" class="btn btn-primary" disabled="@(Busy || !Changed)">@T["Save"]</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <section class="setting">
+            <div class="setting-intro">
+                <h2>@T["Appearance"]</h2>
+                <p>@T["Dark, light, or the same as your device."]</p>
+            </div>
+            <div class="setting-body">
+                <div class="segmented segmented-wide" role="radiogroup" aria-label="@T["Theme"]">
+                    @foreach (var (theme, label) in new[] { (Theme.Dark, T["Dark"]), (Theme.Light, T["Light"]), (Theme.System, T["System"]) })
+                    {
+                        <button type="button" role="radio" aria-checked="@(_s.Theme == theme)" class="@(_s.Theme == theme ? "on" : "")" @onclick="() => SetThemeAsync(theme)">@label</button>
+                    }
+                </div>
+            </div>
+        </section>
+
+        <section class="setting">
+            <div class="setting-intro">
+                <h2>@T["Homepage widget"]</h2>
+                <p>@T["Shows your money in and out this month on a gethomepage.dev dashboard. The widget signs in with a token that only reads these numbers."]</p>
+            </div>
+            <div class="setting-body">
+                @if (_newToken is not null)
+                {
+                    <div class="notice notice-warn">
+                        <strong>@T["Copy the token now"]</strong>
+                        <div>@T["It's shown only this once. If you lose it, create a new one."]</div>
+                        <div class="link-copy">
+                            <input class="input input-code" readonly value="@_newToken" aria-label="@T["Token"]" onfocus="this.select()" />
+                            <button type="button" class="btn btn-primary btn-sm" @onclick="() => CopyAsync(_newToken)"><Icon Name="copy" Size="15" /> @T["Copy"]</button>
+                        </div>
+                    </div>
+                }
+                @if (_s.HasHomepageToken)
+                {
+                    <p>@T["A token was created {0}.", _s.HomepageTokenCreatedAt is { } at ? Format.Date(at, _s.TimeZone) : ""]</p>
+                }
+                else
+                {
+                    <p class="muted">@T["No token yet."]</p>
+                }
+                <div class="actions">
+                    <button type="button" class="btn btn-secondary" disabled="@Busy" @onclick="CreateTokenAsync"><Icon Name="key" Size="16" /> @(_s.HasHomepageToken ? T["Replace token"] : T["Create token"])</button>
+                    @if (_s.HasHomepageToken)
+                    {
+                        <button type="button" class="btn btn-ghost btn-danger-text" disabled="@Busy" @onclick="RevokeTokenAsync">@T["Revoke"]</button>
+                    }
+                </div>
+                <details class="howto">
+                    <summary>@T["Widget settings for services.yaml"]</summary>
+                    <pre><code>- @AppInfo.Name:
+    widget:
+      type: customapi
+      url: @(Nav.BaseUri)api/homepage/month
+      headers:
+        X-API-Key: @(_newToken ?? "llr_…")
+      mappings:
+        - field: { CHF: in }
+          label: @T["In"]
+          format: float
+        - field: { CHF: out }
+          label: @T["Out"]
+          format: float</code></pre>
+                    <p class="muted small">@T["Replace CHF with your currency. The answer also has \"net\" per currency and \"month\"."]</p>
+                </details>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private SettingsView? _s;
+    private string _language = "en";
+    private string _region = Regions.DefaultRegion;
+    private string _timeZone = Regions.DefaultTimeZone;
+    private string? _newToken;
+
+    private bool Changed => _s is not null && (_language != _s.Language || _region != _s.RegionFormat || _timeZone != _s.TimeZone);
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _s = await Settings.GetAsync(await UserIdAsync(), PageToken);
+        _language = _s.Language;
+        _region = _s.RegionFormat;
+        _timeZone = _s.TimeZone;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_s is null) return;
+        if (await RunAsync(async () => await Settings.SaveAsync(await UserIdAsync(), new SettingsUpdate(_s.Theme, _language, _region, _timeZone), PageToken)))
+            // The page's language and formats are fixed when it loads.
+            Nav.Refresh(forceReload: true);
+    }
+
+    private async Task SetThemeAsync(Theme theme)
+    {
+        if (_s is null) return;
+        await Settings.SetThemeAsync(await UserIdAsync(), theme, PageToken);
+        _s = _s with { Theme = theme };
+        await JS.InvokeVoidAsync("laliraApplyTheme", theme.ToString().ToLowerInvariant());
+    }
+
+    private async Task CreateTokenAsync()
+    {
+        if (_s?.HasHomepageToken == true && !await Ui.Confirm.AskAsync(T["Replace the token?"], T["The widget stops working until you give it the new token."], T["Replace token"]))
+            return;
+        await RunAsync(async () =>
+        {
+            _newToken = await Settings.CreateHomepageTokenAsync(await UserIdAsync(), PageToken);
+            await LoadAsync();
+        });
+    }
+
+    private async Task RevokeTokenAsync()
+    {
+        if (!await Ui.Confirm.AskAsync(T["Revoke the token?"], T["The widget stops working."], T["Revoke"], danger: true))
+            return;
+        await RunAsync(async () =>
+        {
+            await Settings.RevokeHomepageTokenAsync(await UserIdAsync(), PageToken);
+            _newToken = null;
+            await LoadAsync();
+        });
+    }
+
+    private async Task CopyAsync(string text)
+    {
+        if (await JS.InvokeAsync<bool>("lalira.copyText", text))
+            Ui.Toast.Success(T["Copied."]);
+        else
+            Ui.Toast.Error(T["The browser didn't allow copying. Select the text and copy it by hand."]);
+    }
+}

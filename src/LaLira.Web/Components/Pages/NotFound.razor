@@ -1,0 +1,12 @@
+@page "/not-found"
+@attribute [AllowAnonymous]
+@layout MainLayout
+@inject Texts T
+
+<PageTitle>@T["Not found"] · @AppInfo.Name</PageTitle>
+
+<div class="empty">
+    <h2>@T["There's nothing at this address"]</h2>
+    <p>@T["The page may have been deleted, or the link is wrong."]</p>
+    <a class="btn btn-secondary" href="">@T["Go to the overview"]</a>
+</div>

@@ -1,0 +1,245 @@
+@page "/accounts/{Id:int}/import"
+@using System.Text
+@inherits AppPage
+@inject AccountService Accounts
+@inject CsvService Csv
+
+<PageTitle>@T["Import CSV"] · @AppInfo.Name</PageTitle>
+
+<div class="page-head">
+    <div>
+        <p class="eyebrow"><a href="@($"accounts/{Id}")">@(_account?.Name ?? T["Account"])</a> / @T["Import"]</p>
+        <h1>@T["Import CSV"]</h1>
+        <p class="page-sub">@T["Choose a CSV file with a date, a description and an amount (or money in and out as two columns). You'll see every row before anything is booked."]</p>
+    </div>
+</div>
+
+@if (_account is null)
+{
+    <p class="page-loading">…</p>
+}
+else
+{
+    <section class="section import-step">
+        <label class="file-drop">
+            <Icon Name="upload" Size="22" />
+            <span>@(_fileName ?? T["Choose a CSV file"])</span>
+            <InputFile OnChange="LoadFileAsync" accept=".csv,.txt,text/csv" />
+        </label>
+        <p class="muted small">@T["Semicolons, commas or tabs; dates like 01.05.2009 or 2009-05-01; amounts like 1'234.50, 1.234,50 or -250."]</p>
+    </section>
+
+    @if (_table is not null && _map is not null)
+    {
+        <section class="section">
+            <div class="section-head"><h2>@T["Columns"]</h2></div>
+            <div class="field-row field-row-wrap">
+                <label class="field">
+                    <span>@T["Date"]</span>
+                    <select class="select" value="@_map.DateColumn" @onchange="e => SetMap(_map with { DateColumn = Col(e) })">@ColumnOptions(false)</select>
+                </label>
+                <label class="field">
+                    <span>@T["Date format"]</span>
+                    <select class="select" value="@_map.DateFormat" @onchange="e => SetMap(_map with { DateFormat = e.Value?.ToString() })">
+                        @foreach (var f in CsvService.DateFormats)
+                        {
+                            <option value="@f">@f</option>
+                        }
+                    </select>
+                </label>
+                <label class="field">
+                    <span>@T["Description"]</span>
+                    <select class="select" value="@_map.DescriptionColumn" @onchange="e => SetMap(_map with { DescriptionColumn = Col(e) })">@ColumnOptions(false)</select>
+                </label>
+                <label class="field">
+                    <span>@T["Amount"]</span>
+                    <select class="select" value="@(_map.AmountColumn ?? -1)" @onchange="e => SetMap(_map with { AmountColumn = NullCol(e) })">
+                        <option value="-1">@T["Two columns: in and out"]</option>
+                        @ColumnOptions(false)
+                    </select>
+                </label>
+                @if (_map.AmountColumn is null)
+                {
+                    <label class="field">
+                        <span>@T["Money in"]</span>
+                        <select class="select" value="@(_map.InColumn ?? -1)" @onchange="e => SetMap(_map with { InColumn = NullCol(e) })">@ColumnOptions(true)</select>
+                    </label>
+                    <label class="field">
+                        <span>@T["Money out"]</span>
+                        <select class="select" value="@(_map.OutColumn ?? -1)" @onchange="e => SetMap(_map with { OutColumn = NullCol(e) })">@ColumnOptions(true)</select>
+                    </label>
+                }
+            </div>
+            <label class="check">
+                <input type="checkbox" checked="@_map.HasHeader" @onchange="e => SetMap(_map with { HasHeader = e.Value is true })" /> @T["The first line has the column names"]
+            </label>
+        </section>
+
+        @if (_rows is not null)
+        {
+            var ok = _rows.Count(r => r.Status == CsvRowStatus.Ok);
+            var dup = _rows.Count(r => r.Status == CsvRowStatus.Duplicate);
+            var bad = _rows.Count(r => r.Status == CsvRowStatus.Error);
+            <section class="section">
+                <div class="section-head">
+                    <h2>@T["Preview"]</h2>
+                    <span class="muted small">
+                        @T.Plural(ok, "{0} new", "{0} new")
+                        @if (dup > 0) { <span> · @T.Plural(dup, "{0} looks like a duplicate", "{0} look like duplicates")</span> }
+                        @if (bad > 0) { <span> · @T.Plural(bad, "{0} can't be read", "{0} can't be read")</span> }
+                    </span>
+                </div>
+                @if (dup > 0)
+                {
+                    <p class="muted small">@T["Rows with the same date, amount and description as an existing position (or an earlier row) aren't imported unless you tick them."]</p>
+                }
+                <div class="table-scroll">
+                    <table class="ledger import-table">
+                        <thead>
+                            <tr>
+                                <th class="col-check"><span class="visually-hidden">@T["Import"]</span></th>
+                                <th>@T["Line"]</th>
+                                <th class="col-date">@T["Date"]</th>
+                                <th>@T["Description"]</th>
+                                <th class="num">@T["Amount"]</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in _rows.Take(MaxShown))
+                            {
+                                <tr class="@(r.Status == CsvRowStatus.Error ? "row-error" : r.Status == CsvRowStatus.Duplicate ? "row-dup" : "")" @key="r.Line">
+                                    <td class="col-check">
+                                        @if (r.Status != CsvRowStatus.Error)
+                                        {
+                                            <input type="checkbox" checked="@_selected.Contains(r.Line)" @onchange="e => Toggle(r.Line, e.Value is true)" aria-label="@T["Import line {0}", r.Line]" />
+                                        }
+                                    </td>
+                                    <td class="muted num">@r.Line</td>
+                                    <td class="col-date num">@(r.Date is { } d ? Format.Date(d) : "")</td>
+                                    <td>
+                                        @r.Description
+                                        @if (r.Error is not null)
+                                        {
+                                            <div class="field-error">@T[r.Error]</div>
+                                        }
+                                        else if (r.Status == CsvRowStatus.Duplicate)
+                                        {
+                                            <span class="tag">@T["Duplicate?"]</span>
+                                        }
+                                    </td>
+                                    <td class="num amount">@(r.Amount is { } a ? Format.Money(a, _account) : "")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                @if (_rows.Count > MaxShown)
+                {
+                    <p class="muted small">@T["Showing the first {0} of {1} rows; all are imported.", MaxShown, _rows.Count]</p>
+                }
+                <div class="actions">
+                    <a class="btn btn-ghost" href="@($"accounts/{Id}")">@T["Cancel"]</a>
+                    <button type="button" class="btn btn-primary" disabled="@(Busy || _selected.Count == 0)" @onclick="ImportAsync">
+                        @T.Plural(_selected.Count, "Import {0} position", "Import {0} positions")
+                    </button>
+                </div>
+            </section>
+        }
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private const int MaxShown = 500;
+    private const long MaxFileBytes = 5 * 1024 * 1024;
+
+    private AccountInfo? _account;
+    private string? _fileName;
+    private CsvTable? _table;
+    private CsvMapping? _map;
+    private IReadOnlyList<CsvPreviewRow>? _rows;
+    private readonly HashSet<int> _selected = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _account = await Accounts.GetAsync(await UserIdAsync(), Id, PageToken); }
+        catch (NotFoundException) { Nav.NavigateTo(""); }
+    }
+
+    private async Task LoadFileAsync(InputFileChangeEventArgs e)
+    {
+        await RunAsync(async () =>
+        {
+            if (e.File.Size > MaxFileBytes)
+                throw new InputException("The file is larger than {0} MB.", MaxFileBytes / 1024 / 1024);
+            using var ms = new MemoryStream();
+            await e.File.OpenReadStream(MaxFileBytes, PageToken).CopyToAsync(ms, PageToken);
+            var bytes = ms.ToArray();
+            string text;
+            try { text = new UTF8Encoding(false, true).GetString(bytes); }
+            // Older Excel exports are in Windows-1252 (Latin-1 is close enough for umlauts).
+            catch (DecoderFallbackException) { text = Encoding.Latin1.GetString(bytes); }
+
+            _fileName = e.File.Name;
+            _table = CsvService.Parse(text);
+            if (_table.Rows.Count == 0)
+                throw new InputException("The file is empty.");
+            await SetMapAsync(CsvService.Guess(_table));
+        });
+    }
+
+    private void SetMap(CsvMapping map) => _ = InvokeAsync(() => RunAsync(() => SetMapAsync(map)));
+
+    private async Task SetMapAsync(CsvMapping map)
+    {
+        if (_table is null) return;
+        if (map.DateFormat is null || map.DateColumn != _map?.DateColumn || map.HasHeader != _map?.HasHeader)
+        {
+            var values = _table.Rows.Skip(map.HasHeader ? 1 : 0).Where(r => map.DateColumn < r.Length).Select(r => r[map.DateColumn]);
+            map = map with { DateFormat = CsvService.DetectDateFormat(values) ?? map.DateFormat ?? CsvService.DateFormats[0] };
+        }
+        _map = map;
+        _rows = await Csv.PreviewAsync(await UserIdAsync(), Id, _table, map, PageToken);
+        _selected.Clear();
+        foreach (var r in _rows.Where(r => r.Status == CsvRowStatus.Ok))
+            _selected.Add(r.Line);
+    }
+
+    private void Toggle(int line, bool on)
+    {
+        if (on) _selected.Add(line); else _selected.Remove(line);
+    }
+
+    private async Task ImportAsync()
+    {
+        if (_rows is null) return;
+        var count = 0;
+        if (await RunAsync(async () => count = await Csv.ImportAsync(await UserIdAsync(), Id, _rows.Where(r => _selected.Contains(r.Line)), PageToken)))
+        {
+            Ui.Toast.Success(T.Plural(count, "{0} position imported.", "{0} positions imported."));
+            await Ui.RefreshAccountsAsync();
+            Nav.NavigateTo($"accounts/{Id}");
+        }
+    }
+
+    private static int Col(ChangeEventArgs e) => int.TryParse(e.Value?.ToString(), out var c) ? c : 0;
+
+    private static int? NullCol(ChangeEventArgs e) => int.TryParse(e.Value?.ToString(), out var c) && c >= 0 ? c : null;
+
+    // One option per column, named by its header or its first value.
+    private RenderFragment ColumnOptions(bool allowNone) => __builder =>
+    {
+        if (_table is null || _map is null) return;
+        if (allowNone)
+        {
+            <option value="-1">@T["(none)"]</option>
+        }
+        for (var i = 0; i < _table.ColumnCount; i++)
+        {
+            var first = _table.Rows[0].ElementAtOrDefault(i) ?? "";
+            var label = _map.HasHeader ? first : $"{T["Column {0}", i + 1]}: {first}";
+            <option value="@i">@(label.Length > 40 ? label[..40] + "…" : label)</option>
+        }
+    };
+}

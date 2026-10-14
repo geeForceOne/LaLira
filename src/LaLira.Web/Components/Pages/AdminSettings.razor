@@ -1,0 +1,213 @@
+@page "/admin/settings"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using LaLira.Core.Email
+@using LaLira.Core.Security
+@inherits AppPage
+@inject EmailSettingsService EmailSettings
+@inject AccountMailService Mail
+@inject AccountRequestService Requests
+
+<PageTitle>@T["Admin settings"] · @AppInfo.Name</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>@T["Admin settings"]</h1>
+        <p class="page-sub">@T["The mail server for invites, password resets and reports, and what admins are told about."]</p>
+    </div>
+</div>
+
+@if (_view is null)
+{
+    <p class="page-loading">…</p>
+}
+else
+{
+    <div class="settings">
+        <section class="setting">
+            <div class="setting-intro">
+                <h2>@T["Mail server"]</h2>
+                <p>@T["SMTP settings from your mail provider. Without them, invite and reset links are shown to you to pass on, and reports wait."]</p>
+                <p class="muted small">@(_view.IsConfigured ? T["Email is on."] : T["Email is off."])</p>
+            </div>
+            <div class="setting-body">
+                <form class="form" @onsubmit="SaveAsync" @onsubmit:preventDefault="true">
+                    <div class="field-row field-row-wrap">
+                        <label class="field field-grow">
+                            <span>@T["Server"]</span>
+                            <input class="input" @bind="_host" placeholder="smtp-relay.brevo.com" spellcheck="false" autocomplete="off" />
+                        </label>
+                        <label class="field">
+                            <span>@T["Port"]</span>
+                            <input class="input input-short" type="number" min="1" max="65535" @bind="_port" />
+                        </label>
+                        <label class="field">
+                            <span>@T["Encryption"]</span>
+                            <select class="select" @bind="_security">
+                                <option value="@EmailSecurity.StartTls">STARTTLS</option>
+                                <option value="@EmailSecurity.SslOnConnect">SSL/TLS</option>
+                                <option value="@EmailSecurity.Auto">@T["Automatic"]</option>
+                                <option value="@EmailSecurity.None">@T["None"]</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="field-row field-row-wrap">
+                        <label class="field field-grow">
+                            <span>@T["Username"]</span>
+                            <input class="input" @bind="_userName" spellcheck="false" autocomplete="off" />
+                        </label>
+                        <label class="field field-grow">
+                            <span>@T["Password"]</span>
+                            <input class="input" type="password" @bind="_password" autocomplete="new-password"
+                                   placeholder="@(_view.Password == SecretStatus.Set ? T["Saved; leave empty to keep it"] : "")" />
+                            @if (_view.Password == SecretStatus.Unreadable)
+                            {
+                                <span class="field-error">@T["The saved password can't be read anymore. Enter it again."]</span>
+                            }
+                            else if (_view.Password == SecretStatus.Set)
+                            {
+                                <label class="check check-small"><input type="checkbox" @bind="_removePassword" /> @T["Remove the saved password"]</label>
+                            }
+                        </label>
+                    </div>
+                    <div class="field-row field-row-wrap">
+                        <label class="field field-grow">
+                            <span>@T["Sender address"]</span>
+                            <input class="input" type="email" @bind="_from" placeholder="lalira@example.com" spellcheck="false" />
+                        </label>
+                        <label class="field field-grow">
+                            <span>@T["Sender name"]</span>
+                            <input class="input" @bind="_fromName" placeholder="@EmailSettingsService.DefaultFromName" />
+                        </label>
+                    </div>
+                    <label class="field">
+                        <span>@T["The app's address"] <span class="muted">@T["(optional)"]</span></span>
+                        <input class="input" type="url" @bind="_publicUrl" placeholder="https://lalira.example.com" spellcheck="false" />
+                        <span class="field-hint">@T["Used for links in emails. Without it, links use the address you're using right now, which is wrong behind some reverse proxies."]</span>
+                    </label>
+                    @foreach (var e in _errors)
+                    {
+                        <div class="field-error">@T[e]</div>
+                    }
+                    <div class="actions">
+                        <button type="submit" class="btn btn-primary" disabled="@Busy">@T["Save"]</button>
+                        <button type="button" class="btn btn-secondary" disabled="@(Busy || !_view.IsConfigured)" @onclick="TestAsync"><Icon Name="send" Size="15" /> @T["Send a test email"]</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <section class="setting">
+            <div class="setting-intro">
+                <h2>@T["Account requests"]</h2>
+                <p>@T["Let people ask for an account from the sign-in page. You approve or decline each request on the Users page."]</p>
+            </div>
+            <div class="setting-body">
+                <label class="check">
+                    <input type="checkbox" checked="@_requestsOpen" disabled="@(!_view.IsConfigured)" @onchange="SetRequestsAsync" />
+                    @T["Let people request an account"]
+                </label>
+                @if (!_view.IsConfigured)
+                {
+                    <p class="field-hint">@T["Needs email: requesters hear back by email."]</p>
+                }
+            </div>
+        </section>
+
+        <section class="setting">
+            <div class="setting-intro">
+                <h2>@T["Notifications"]</h2>
+                <p>@T["Emails to you, as an admin."]</p>
+            </div>
+            <div class="setting-body">
+                <label class="check">
+                    <input type="checkbox" checked="@_notifyJoined" @onchange="SetNotifyJoinedAsync" />
+                    @T["Notify me when invited users join"]
+                </label>
+                <label class="check">
+                    <input type="checkbox" checked="@_notifyRequests" @onchange="SetNotifyRequestsAsync" />
+                    @T["Notify me about account requests"]
+                </label>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private EmailSettingsView? _view;
+    private string? _host;
+    private int _port = 587;
+    private EmailSecurity _security = EmailSecurity.StartTls;
+    private string? _userName;
+    private string? _password;
+    private bool _removePassword;
+    private string? _from;
+    private string? _fromName;
+    private string? _publicUrl;
+    private IReadOnlyList<string> _errors = [];
+    private bool _requestsOpen;
+    private bool _notifyJoined;
+    private bool _notifyRequests;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        var me = await UserIdAsync();
+        _requestsOpen = await Requests.IsOpenAsync(PageToken);
+        _notifyJoined = await Mail.GetNotifyInviteAcceptedAsync(me);
+        _notifyRequests = await Mail.GetNotifyAccountRequestsAsync(me);
+    }
+
+    private async Task LoadAsync()
+    {
+        _view = await EmailSettings.GetAsync(PageToken);
+        _host = _view.Host;
+        _port = _view.Port;
+        _security = _view.Security;
+        _userName = _view.UserName;
+        _from = _view.From;
+        _fromName = _view.FromName;
+        _publicUrl = _view.PublicUrl;
+        _password = null;
+        _removePassword = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var newPassword = _removePassword ? "" : string.IsNullOrEmpty(_password) ? null : _password;
+            _errors = await EmailSettings.SaveAsync(new EmailSettingsUpdate(_host, _port, _security, _userName, newPassword, _from, _fromName, _publicUrl), PageToken);
+            if (_errors.Count == 0)
+            {
+                await LoadAsync();
+                Ui.Toast.Success(T["Email settings saved."]);
+            }
+        });
+    }
+
+    private async Task TestAsync()
+    {
+        string to = "";
+        if (await RunAsync(async () => to = await Mail.SendTestAsync(await UserIdAsync(), PageToken)))
+            Ui.Toast.Success(T["Test email sent to {0}.", to]);
+    }
+
+    private async Task SetRequestsAsync(ChangeEventArgs e)
+    {
+        _requestsOpen = e.Value is true;
+        await Requests.SetOpenAsync(_requestsOpen, PageToken);
+        Ui.Toast.Success(_requestsOpen ? T["People can now request an account."] : T["Account requests are closed."]);
+    }
+
+    private async Task SetNotifyJoinedAsync(ChangeEventArgs e)
+    {
+        _notifyJoined = e.Value is true;
+        await Mail.SetNotifyInviteAcceptedAsync(await UserIdAsync(), _notifyJoined);
+    }
+
+    private async Task SetNotifyRequestsAsync(ChangeEventArgs e)
+    {
+        _notifyRequests = e.Value is true;
+        await Mail.SetNotifyAccountRequestsAsync(await UserIdAsync(), _notifyRequests);
+    }
+}

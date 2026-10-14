@@ -1,0 +1,174 @@
+@page "/profile"
+@inherits AppPage
+@inject UserAdminService Users
+
+<PageTitle>@T["Profile"] · @AppInfo.Name</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>@T["Profile"]</h1>
+        <p class="page-sub">
+            @if (_me is not null)
+            {
+                @(_me.IsAdmin ? T["Signed in as {0} (administrator).", _me.ShownName] : T["Signed in as {0}.", _me.ShownName])
+            }
+        </p>
+    </div>
+</div>
+
+@if (_me is null)
+{
+    <p class="page-loading">…</p>
+}
+else
+{
+    <div class="settings">
+        <section class="setting">
+            <div class="setting-intro">
+                <h2>@T["Name and email"]</h2>
+                <p>@T["Your name in {0} and the email address you sign in with. Reports go to this address too.", AppInfo.Name]</p>
+            </div>
+            <div class="setting-body">
+                @if (ProfileSaved)
+                {
+                    <div class="notice notice-good" role="status">@T["Profile saved."]</div>
+                }
+                <form class="form" @onsubmit="SaveProfileAsync" @onsubmit:preventDefault="true">
+                    <label class="field">
+                        <span>@T["Display name"]</span>
+                        <input class="input" @bind="_displayName" @bind:event="oninput" autocomplete="nickname" maxlength="@AppUser.MaxDisplayNameLength" />
+                    </label>
+                    <label class="field">
+                        <span>@T["Email address"]</span>
+                        <input class="input" type="email" @bind="_email" @bind:event="oninput" autocomplete="email" spellcheck="false" />
+                    </label>
+                    @foreach (var e in _profileErrors)
+                    {
+                        <div class="field-error">@e</div>
+                    }
+                    <div class="actions">
+                        <button type="submit" class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_email) || string.IsNullOrWhiteSpace(_displayName) || !ProfileChanged)">@T["Save"]</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <section class="setting">
+            <div class="setting-intro">
+                <h2>@T["Password"]</h2>
+                <p>@T["Change the password you sign in with."]</p>
+            </div>
+            <div class="setting-body">
+                @if (PasswordChanged)
+                {
+                    <div class="notice notice-good" role="status">@T["Password changed. You're still signed in on this device."]</div>
+                }
+                <form class="form" @onsubmit="ChangePasswordAsync" @onsubmit:preventDefault="true">
+                    @* Lets password managers tie the new password to the right account. *@
+                    <input type="text" value="@(_me.Email ?? _me.UserName)" autocomplete="username" hidden readonly />
+                    <label class="field">
+                        <span>@T["Current password"]</span>
+                        <input class="input" type="password" @bind="_current" @bind:event="oninput" autocomplete="current-password" />
+                    </label>
+                    <div class="field-row">
+                        <label class="field">
+                            <span>@T["New password"]</span>
+                            <input class="input" type="password" @bind="_new" @bind:event="oninput" autocomplete="new-password" />
+                            <span class="field-hint">@T["At least 8 characters."]</span>
+                        </label>
+                        <label class="field">
+                            <span>@T["Repeat new password"]</span>
+                            <input class="input" type="password" @bind="_confirm" @bind:event="oninput" autocomplete="new-password" />
+                            @if (_confirm.Length > 0 && _confirm != _new)
+                            {
+                                <span class="field-error">@T["The passwords don't match."]</span>
+                            }
+                        </label>
+                    </div>
+                    @foreach (var e in _passwordErrors)
+                    {
+                        <div class="field-error">@e</div>
+                    }
+                    <div class="actions">
+                        <button type="submit" class="btn btn-primary"
+                                disabled="@(_busy || _current.Length == 0 || _new.Length < 8 || _confirm != _new)">@T["Change password"]</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    // Set by /account/refresh-signin's redirect back here after a password or profile change.
+    [SupplyParameterFromQuery(Name = "changed")]
+    private bool PasswordChanged { get; set; }
+
+    [SupplyParameterFromQuery(Name = "saved")]
+    private bool ProfileSaved { get; set; }
+
+    private UserRow? _me;
+    private string _displayName = "";
+    private string _email = "";
+    private string _current = "";
+    private string _new = "";
+    private string _confirm = "";
+    private bool _busy;
+    private List<string> _profileErrors = [];
+    private List<string> _passwordErrors = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _me = await Users.FindAsync(await UserIdAsync());
+        _displayName = _me?.DisplayName ?? "";
+        _email = _me?.Email ?? "";
+    }
+
+    private bool NameChanged => _displayName.Trim() != (_me?.DisplayName ?? "");
+    private bool EmailChanged => _email.Trim() != (_me?.Email ?? "");
+    private bool ProfileChanged => NameChanged || EmailChanged;
+
+    private async Task SaveProfileAsync()
+    {
+        _busy = true;
+        try
+        {
+            var userId = await UserIdAsync();
+            _profileErrors = [];
+            if (NameChanged)
+                _profileErrors.AddRange(await Users.SetDisplayNameAsync(userId, _displayName));
+            if (_profileErrors.Count == 0 && EmailChanged)
+                _profileErrors.AddRange(await Users.SetEmailAsync(userId, _email));
+            if (_profileErrors.Count > 0)
+            {
+                _me = await Users.FindAsync(userId);
+                return;
+            }
+
+            // The name in the sidebar comes from the sign-in cookie; re-issue it so it shows the change.
+            Nav.NavigateTo("account/refresh-signin?returnUrl=" + Uri.EscapeDataString("/profile?saved=true"), forceLoad: true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ChangePasswordAsync()
+    {
+        _busy = true;
+        try
+        {
+            _passwordErrors = (await Users.ChangePasswordAsync(await UserIdAsync(), _current, _new)).ToList();
+            if (_passwordErrors.Count > 0) return;
+
+            // The password change rotated the security stamp; a full page load through this endpoint
+            // swaps in a fresh sign-in cookie so this device stays signed in.
+            Nav.NavigateTo("account/refresh-signin?returnUrl=" + Uri.EscapeDataString("/profile?changed=true"), forceLoad: true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

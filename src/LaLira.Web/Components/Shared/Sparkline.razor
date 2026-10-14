@@ -1,0 +1,30 @@
+@* A small balance-over-time line with an area under it, and a faint zero line when the balance
+   crosses zero. Values are month-end balances, oldest first. *@
+@if (Values.Count > 1)
+{
+    // Scaled to the values' own range, so a change shows even on a large balance.
+    var min = Values.Min();
+    var max = Values.Max();
+    if (max == min) { min -= 1; max += 1; }
+    double X(int i) => Pad + i * (Width - 2 * Pad) / (double)(Values.Count - 1);
+    double Y(long v) => Pad + (Height - 2 * Pad) * (1 - (v - min) / (double)(max - min));
+    var line = string.Join(" ", Values.Select((v, i) => FormattableString.Invariant($"{X(i):0.##},{Y(v):0.##}")));
+    var bottom = Height - Pad;
+    var area = FormattableString.Invariant($"M{X(0):0.##},{bottom} L") + line.Replace(" ", " L") +
+               FormattableString.Invariant($" L{X(Values.Count - 1):0.##},{bottom} Z");
+    <svg class="sparkline" viewBox="0 0 @Width @Height" preserveAspectRatio="none" role="img" aria-label="@Label">
+        <path d="@area" class="spark-area" />
+        @if (min < 0 && max > 0)
+        {
+            <line x1="0" x2="@Width" y1="@Y(0).ToString(System.Globalization.CultureInfo.InvariantCulture)" y2="@Y(0).ToString(System.Globalization.CultureInfo.InvariantCulture)" class="spark-zero" />
+        }
+        <polyline points="@line" class="spark-line" vector-effect="non-scaling-stroke" />
+    </svg>
+}
+
+@code {
+    private const int Width = 200, Height = 44, Pad = 3;
+
+    [Parameter, EditorRequired] public IReadOnlyList<long> Values { get; set; } = [];
+    [Parameter] public string? Label { get; set; }
+}

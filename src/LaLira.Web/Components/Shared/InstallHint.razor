@@ -1,0 +1,41 @@
+@inject IJSRuntime JS
+@inject Texts T
+
+@* On an iPhone or iPad in Safari, explains how to add LaLira to the home screen: iOS has no
+   install prompt of its own. Closing it is remembered on this device. *@
+@if (_show)
+{
+    <div class="banner" role="note">
+        <Icon Name="upload" />
+        <p>@((MarkupString)T["Use {0} like an app: tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>.", AppInfo.Name])</p>
+        <button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="@T["Close"]" title="@T["Close"]" @onclick="CloseAsync">
+            <Icon Name="x" Size="16" />
+        </button>
+    </div>
+}
+
+@code {
+    private const string ClosedPref = "installHintClosed";
+    private bool _show;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            _show = await JS.InvokeAsync<bool>("lalira.isIosBrowser")
+                    && await JS.InvokeAsync<string?>("lalira.getPref", ClosedPref) != "1";
+        }
+        catch (JSException)
+        {
+            return;
+        }
+        if (_show) StateHasChanged();
+    }
+
+    private async Task CloseAsync()
+    {
+        _show = false;
+        try { await JS.InvokeVoidAsync("lalira.setPref", ClosedPref, "1"); } catch (JSException) { }
+    }
+}

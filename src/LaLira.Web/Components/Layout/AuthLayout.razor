@@ -1,0 +1,17 @@
+@inherits LayoutComponentBase
+@inject Texts T
+
+<div class="auth">
+    <aside class="auth-side">
+        <span class="auth-watermark" aria-hidden="true">₤</span>
+        <a class="auth-brand" href="">
+            <BrandMark Size="132" PlayOnLoad="true" />
+            <span class="auth-name">@AppInfo.Name</span>
+        </a>
+        <p class="auth-tagline">@T["Simple bookkeeping for your accounts."]</p>
+        <a class="auth-version" href="release-notes">@AppInfo.Name @AppInfo.Version</a>
+    </aside>
+    <main class="auth-main">
+        @Body
+    </main>
+</div>

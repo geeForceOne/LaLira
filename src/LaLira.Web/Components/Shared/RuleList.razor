@@ -1,0 +1,54 @@
+@inject Texts T
+
+@* Recurring positions as a table: what, how often, next date, amount. A row opens the rule. *@
+<table class="table rules-table">
+    <thead>
+        <tr>
+            <th>@T["Description"]</th>
+            @if (ShowAccount)
+            {
+                <th>@T["Account"]</th>
+            }
+            <th>@T["Schedule"]</th>
+            <th>@T["Next"]</th>
+            <th class="num">@T["Amount"]</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var r in Rules)
+        {
+            <tr class="clickable @(r.IsActive ? "" : "paused")" @onclick="() => OnEdit.InvokeAsync(r)" tabindex="0" @onkeydown="e => KeyAsync(e, r)" @key="r.Id">
+                <td data-label="@T["Description"]">
+                    <span class="template">@r.DescriptionTemplate</span>
+                    @if (!r.IsActive)
+                    {
+                        <span class="tag">@T["Paused"]</span>
+                    }
+                </td>
+                @if (ShowAccount)
+                {
+                    <td data-label="@T["Account"]"><a href="@($"accounts/{r.AccountId}")" @onclick:stopPropagation="true">@r.AccountName</a></td>
+                }
+                <td data-label="@T["Schedule"]">@Format.Frequency(T, r.Frequency, r.Interval), @Format.When(T, r)
+                    @if (r.EndDate is { } end)
+                    {
+                        <span class="muted small">· @T["until {0}", Format.Date(end)]</span>
+                    }
+                </td>
+                <td data-label="@T["Next"]" class="num nowrap">@(r.NextDue is { } next && r.IsActive ? Format.Date(next) : r.NextDue is null ? T["Ended"] : "–")</td>
+                <td data-label="@T["Amount"]" class="num amount nowrap">@Format.Money(r.Amount, r.ShowDecimals) <span class="code">@r.Currency</span></td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<RuleView> Rules { get; set; } = [];
+    [Parameter] public EventCallback<RuleView> OnEdit { get; set; }
+    [Parameter] public bool ShowAccount { get; set; } = true;
+
+    private async Task KeyAsync(KeyboardEventArgs e, RuleView r)
+    {
+        if (e.Key == "Enter") await OnEdit.InvokeAsync(r);
+    }
+}
