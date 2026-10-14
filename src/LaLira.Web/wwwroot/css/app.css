@@ -701,6 +701,52 @@ td.num, th.num, .num.right { text-align: right; }
 }
 .balance-main { margin-right: auto; }
 .balance-side .num { font-size: var(--t-lg); font-weight: 500; margin-top: 2px; }
+/* Balance on the left, the chart in the middle, money in/out on the right. */
+.balance-strip.with-chart { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 28px; align-items: stretch; }
+.balance-sides { display: grid; grid-template-columns: repeat(2, max-content); gap: 10px 28px; align-content: center; }
+
+.bchart { display: grid; grid-template-rows: auto minmax(88px, 1fr) auto; gap: 4px; min-width: 0; }
+.bchart-top { display: flex; justify-content: flex-end; }
+.bchart-range { display: inline-flex; gap: 2px; padding: 2px; background: var(--sheet-2); border: 1px solid var(--rule); border-radius: var(--r-md); }
+.bchart-range button { border: 0; border-radius: var(--r-sm); background: none; color: var(--pencil); font: 500 var(--t-xs) var(--font-ui); padding: 3px 9px; cursor: pointer; }
+.bchart-range button:hover { color: var(--ink); }
+.bchart-range button[aria-pressed="true"] { background: var(--sheet-3); color: var(--ink); }
+.bchart-plot { position: relative; min-width: 0; margin-right: 5px; cursor: crosshair; touch-action: pan-y; }
+.bchart-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.bchart-area { fill: var(--accent-soft); stroke: none; }
+.bchart-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.bchart-zero { stroke: var(--rule-strong); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.bchart-end, .bchart-dot {
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    margin: -4.5px 0 0 -4.5px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 2px var(--sheet);
+    pointer-events: none;
+}
+.bchart-cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--rule-strong); pointer-events: none; }
+.bchart-tip {
+    position: absolute;
+    top: -6px;
+    transform: translate(-50%, -100%);
+    padding: 3px 8px;
+    background: var(--sheet-3);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--r-sm);
+    color: var(--ink);
+    font-size: var(--t-xs);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    z-index: 3;
+}
+.bchart-axis { display: flex; justify-content: space-between; color: var(--pencil); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
+.iban { display: inline-flex; align-items: center; gap: 2px; font-family: var(--font-code); font-size: var(--t-sm); color: var(--ink-soft); }
+.row-note { border: 0; background: none; color: var(--accent); padding: 0 2px; margin-left: 6px; cursor: pointer; vertical-align: -1px; }
+.row-note:hover { color: var(--ink); }
+.note-button.has-note { color: var(--accent); background: var(--accent-soft); }
 
 .entry-bar {
     margin-top: 16px;
@@ -721,7 +767,15 @@ td.num, th.num, .num.right { text-align: right; }
 .entry .field-hint .icon { color: var(--accent); }
 .ledger tr.editing td { padding: 10px 12px; background: var(--accent-soft); border-bottom: 1px solid var(--rule-strong); }
 
-.ledger-section { margin-top: 20px; }
+.ledger-section { margin-top: 12px; }
+.ledger-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
+.search-field { position: relative; display: flex; align-items: center; flex: 0 1 360px; min-width: 200px; }
+.search-field > .icon { position: absolute; left: 10px; color: var(--pencil); pointer-events: none; }
+.search-field .input { padding-left: 34px; padding-right: 34px; }
+.search-field .btn { position: absolute; right: 4px; }
+.search-field input::-webkit-search-cancel-button { display: none; }
+.search-summary { color: var(--ink-soft); font-size: var(--t-sm); font-variant-numeric: tabular-nums; }
+.ledger-tools > .btn { margin-left: auto; }
 .ledger {
     width: 100%;
     /* Separate borders (not collapsed) so the corners can round and the header can stick. */
@@ -1025,6 +1079,8 @@ td.num, th.num, .num.right { text-align: right; }
     .usermenu-button { justify-content: center; padding: 6px; }
     .side-foot { width: 100%; }
     .rule-grid { grid-template-columns: 1fr; }
+    .balance-strip.with-chart { grid-template-columns: max-content minmax(0, 1fr); }
+    .balance-strip.with-chart .balance-sides { grid-column: 1 / -1; grid-template-columns: repeat(4, max-content); }
     .setting { grid-template-columns: 1fr; gap: 12px; }
 }
 
@@ -1084,6 +1140,9 @@ td.num, th.num, .num.right { text-align: right; }
     .total-value { font-size: var(--t-2xl); }
     .balance-strip { padding: 14px 16px; gap: 12px 24px; }
     .balance-main { flex-basis: 100%; }
+    .bchart { display: none; }
+    .balance-strip.with-chart { display: flex; flex-wrap: wrap; }
+    .balance-strip.with-chart .balance-sides { grid-template-columns: repeat(2, max-content); }
 
     /* The ledger keeps three columns: description (with the date under it), amount, balance. */
     .ledger { border-radius: var(--r-md); }

@@ -49,6 +49,34 @@ window.lalira = {
         try { input.showPicker(); } catch { input.focus(); }
     },
 
+    // Hover for the account's balance chart (Components/Shared/BalanceChart.razor): a crosshair, a dot
+    // on the line and the month's balance. Reads the points from the element's data attributes on
+    // every move, so it follows Blazor's re-renders; the listeners are added once.
+    balanceChart: (plot) => {
+        if (!plot || plot._lalira) return;
+        plot._lalira = true;
+        const part = c => plot.querySelector(c);
+        const show = ev => {
+            const labels = JSON.parse(plot.dataset.labels || "[]"), ys = JSON.parse(plot.dataset.ys || "[]");
+            if (labels.length < 2) return;
+            const r = plot.getBoundingClientRect();
+            const x = ((ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left) / r.width;
+            const i = Math.max(0, Math.min(labels.length - 1, Math.round(x * (labels.length - 1))));
+            const left = i * 100 / (labels.length - 1);
+            const cursor = part(".bchart-cursor"), dot = part(".bchart-dot"), tip = part(".bchart-tip");
+            cursor.style.left = left + "%";
+            dot.style.left = left + "%";
+            dot.style.top = ys[i] + "%";
+            tip.textContent = labels[i];
+            tip.style.left = Math.min(Math.max(left, 18), 82) + "%";
+            cursor.hidden = dot.hidden = tip.hidden = false;
+        };
+        const hide = () => plot.querySelectorAll(".bchart-cursor, .bchart-dot, .bchart-tip").forEach(e => e.hidden = true);
+        plot.addEventListener("pointermove", show);
+        plot.addEventListener("pointerdown", show);
+        plot.addEventListener("pointerleave", hide);
+    },
+
     focus: (selector) => document.querySelector(selector)?.focus(),
 
     // Scrolls an element into view, for a year opened in the account list.

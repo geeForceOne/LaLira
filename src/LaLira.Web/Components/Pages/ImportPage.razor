@@ -69,6 +69,10 @@ else
                         <select class="select" value="@(_map.OutColumn ?? -1)" @onchange="e => SetMap(_map with { OutColumn = NullCol(e) })">@ColumnOptions(true)</select>
                     </label>
                 }
+                <label class="field">
+                    <span>@T["Note"] <span class="muted">@T["(optional)"]</span></span>
+                    <select class="select" value="@(_map.NoteColumn ?? -1)" @onchange="e => SetMap(_map with { NoteColumn = NullCol(e) })">@ColumnOptions(true)</select>
+                </label>
             </div>
             <label class="check">
                 <input type="checkbox" checked="@_map.HasHeader" @onchange="e => SetMap(_map with { HasHeader = e.Value is true })" /> @T["The first line has the column names"]
@@ -118,6 +122,10 @@ else
                                     <td class="col-date num">@(r.Date is { } d ? Format.Date(d) : "")</td>
                                     <td>
                                         @r.Description
+                                        @if (r.Note is not null)
+                                        {
+                                            <div class="muted small">@r.Note</div>
+                                        }
                                         @if (r.Error is not null)
                                         {
                                             <div class="field-error">@T[r.Error]</div>

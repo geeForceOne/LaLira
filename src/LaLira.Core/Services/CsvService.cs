@@ -14,11 +14,11 @@ public sealed record CsvTable(char Delimiter, IReadOnlyList<string[]> Rows)
 }
 
 // Which column holds what. Amount is one signed column, or In and Out as two.
-public sealed record CsvMapping(bool HasHeader, int DateColumn, int DescriptionColumn, int? AmountColumn, int? InColumn, int? OutColumn, string? DateFormat);
+public sealed record CsvMapping(bool HasHeader, int DateColumn, int DescriptionColumn, int? AmountColumn, int? InColumn, int? OutColumn, string? DateFormat, int? NoteColumn = null);
 
 public enum CsvRowStatus { Ok, Duplicate, Error }
 
-public sealed record CsvPreviewRow(int Line, DateOnly? Date, string Description, long? Amount, CsvRowStatus Status, string? Error);
+public sealed record CsvPreviewRow(int Line, DateOnly? Date, string Description, long? Amount, CsvRowStatus Status, string? Error, string? Note = null);
 
 // CSV import (with a preview before anything is booked) and export of an account's positions.
 public sealed class CsvService(IDbContextFactory<AppDbContext> dbFactory, AccountService accounts, LedgerService ledger)
@@ -82,6 +82,7 @@ public sealed class CsvService(IDbContextFactory<AppDbContext> dbFactory, Accoun
         var amount = Find("amount", "betrag", "value", "wert");
         var @in = Find("credit", "gutschrift", "einnahme", "eingang", "in");
         var @out = Find("debit", "belastung", "ausgabe", "ausgang", "lastschrift", "out");
+        var note = Find("note", "notiz", "bemerkung", "kommentar", "comment");
         var hasHeader = date is not null || description is not null || amount is not null;
 
         var data = table.Rows.Skip(hasHeader ? 1 : 0).Take(50).ToList();
@@ -97,9 +98,10 @@ public sealed class CsvService(IDbContextFactory<AppDbContext> dbFactory, Accoun
 
         var dateCol = date ?? 0;
         var format = DetectDateFormat(data.Where(r => dateCol < r.Length).Select(r => r[dateCol]));
+        if (note == description || note == dateCol || note == amount) note = null;
         return amount is not null
-            ? new CsvMapping(hasHeader, dateCol, description ?? 1, amount, null, null, format)
-            : new CsvMapping(hasHeader, dateCol, description ?? 1, null, @in, @out, format);
+            ? new CsvMapping(hasHeader, dateCol, description ?? 1, amount, null, null, format, note)
+            : new CsvMapping(hasHeader, dateCol, description ?? 1, null, @in, @out, format, note);
     }
 
     public static string? DetectDateFormat(IEnumerable<string> values)
@@ -129,6 +131,7 @@ public sealed class CsvService(IDbContextFactory<AppDbContext> dbFactory, Accoun
 
             var line = i + 1;
             var description = Cell(map.DescriptionColumn).Trim();
+            var note = map.NoteColumn is null ? null : Cell(map.NoteColumn).Trim() is { Length: > 0 } n ? n : null;
             DateOnly? date = DateOnly.TryParseExact(Cell(map.DateColumn), map.DateFormat ?? "dd.MM.yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
             long? amount = null;
             if (map.AmountColumn is not null)
@@ -150,22 +153,23 @@ public sealed class CsvService(IDbContextFactory<AppDbContext> dbFactory, Accoun
                 : description.Length == 0 ? "The description is empty."
                 : description.Length > Position.MaxDescriptionLength ? "The description is too long."
                 : date < account.OpeningDate ? "The date is before the account's opening date."
+                : note is { Length: > Position.MaxNoteLength } ? "The note is too long."
                 : null;
             if (error is not null)
             {
-                result.Add(new CsvPreviewRow(line, date, description, amount, CsvRowStatus.Error, error));
+                result.Add(new CsvPreviewRow(line, date, description, amount, CsvRowStatus.Error, error, note));
                 continue;
             }
             var key = Key(date!.Value, amount!.Value, description);
             var duplicate = existing.Contains(key) || !seen.Add(key);
-            result.Add(new CsvPreviewRow(line, date, description, amount, duplicate ? CsvRowStatus.Duplicate : CsvRowStatus.Ok, null));
+            result.Add(new CsvPreviewRow(line, date, description, amount, duplicate ? CsvRowStatus.Duplicate : CsvRowStatus.Ok, null, note));
         }
         return result;
     }
 
     public Task<int> ImportAsync(string userId, int accountId, IEnumerable<CsvPreviewRow> rows, CancellationToken ct = default) =>
         ledger.AddManyAsync(userId, accountId,
-            rows.Where(r => r.Status != CsvRowStatus.Error).Select(r => new PositionInput(r.Date!.Value, r.Amount!.Value, r.Description)).ToList(), ct);
+            rows.Where(r => r.Status != CsvRowStatus.Error).Select(r => new PositionInput(r.Date!.Value, r.Amount!.Value, r.Description, r.Note)).ToList(), ct);
 
     // The account's positions, oldest first, with the running balance: semicolons, the person's
     // date format and decimal mark, no group separators, UTF-8 with BOM (so Excel reads umlauts).
@@ -174,13 +178,14 @@ public sealed class CsvService(IDbContextFactory<AppDbContext> dbFactory, Accoun
         var view = await ledger.GetAsync(userId, accountId, t.Language, ct);
         var rows = view.Years.SelectMany(y => y.Rows).Reverse().ToList();
         var sb = new StringBuilder();
-        sb.Append(string.Join(';', t["Date"], t["Description"], t["Amount"], t["Balance"])).Append("\r\n");
+        sb.Append(string.Join(';', t["Date"], t["Description"], t["Amount"], t["Balance"], t["Note"])).Append("\r\n");
         foreach (var r in rows)
         {
             sb.Append(r.Date.ToString("d", t.Format)).Append(';')
               .Append(Quote(r.Description)).Append(';')
               .Append(r.IsOpening ? "" : Money.FormatForInput(r.Amount, t.Format)).Append(';')
-              .Append(Money.FormatForInput(r.Balance, t.Format)).Append("\r\n");
+              .Append(Money.FormatForInput(r.Balance, t.Format)).Append(';')
+              .Append(r.Note is null ? "" : Quote(r.Note)).Append("\r\n");
         }
         var safeName = new string(view.Account.Name.Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray()).Trim('-');
         var name = $"{(safeName.Length == 0 ? "account" : safeName)}-{view.Today:yyyy-MM-dd}.csv";

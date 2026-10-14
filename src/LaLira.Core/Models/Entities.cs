@@ -65,6 +65,10 @@ public sealed class Account
     // A key from AccountIcons.
     public string Icon { get; set; } = AccountIcons.Default;
 
+    // Optional, compact upper case ("CH9300762011623852957"); see Ledger.Iban.
+    public const int MaxIbanLength = 34;
+    public string? Iban { get; set; }
+
     // Display only: amounts are always stored exactly.
     public bool ShowDecimals { get; set; } = true;
     public bool IncludeInReports { get; set; } = true;
@@ -79,6 +83,7 @@ public sealed class Account
 public sealed class Position
 {
     public const int MaxDescriptionLength = 200;
+    public const int MaxNoteLength = 2000;
 
     public int Id { get; set; }
     public int AccountId { get; set; }
@@ -86,6 +91,9 @@ public sealed class Position
     public DateOnly Date { get; set; }
     public long Amount { get; set; }
     public string Description { get; set; } = "";
+
+    // Optional longer text; shown with a note icon in the list, never in email reports.
+    public string? Note { get; set; }
 
     // Set when a recurring rule booked it; with OccurrenceDate it makes each occurrence unique,
     // so a rule never books the same date twice.

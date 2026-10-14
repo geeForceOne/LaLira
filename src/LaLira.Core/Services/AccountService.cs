@@ -7,10 +7,10 @@ namespace LaLira.Core.Services;
 
 public sealed record AccountInfo(
     int Id, string Name, string Currency, long OpeningBalance, DateOnly OpeningDate,
-    bool ShowDecimals, bool IncludeInReports, int SortOrder, string Icon);
+    bool ShowDecimals, bool IncludeInReports, int SortOrder, string Icon, string? Iban = null);
 
 public sealed record AccountInput(
-    string Name, string Currency, long OpeningBalance, DateOnly OpeningDate, bool ShowDecimals, bool IncludeInReports, string Icon);
+    string Name, string Currency, long OpeningBalance, DateOnly OpeningDate, bool ShowDecimals, bool IncludeInReports, string Icon, string? Iban = null);
 
 // Ledger accounts: create, change, delete. Every call is scoped to the person who owns them.
 public sealed class AccountService(IDbContextFactory<AppDbContext> dbFactory)
@@ -45,6 +45,7 @@ public sealed class AccountService(IDbContextFactory<AppDbContext> dbFactory)
             ShowDecimals = clean.ShowDecimals,
             IncludeInReports = clean.IncludeInReports,
             Icon = clean.Icon,
+            Iban = clean.Iban,
             SortOrder = order + 1,
         };
         db.Accounts.Add(account);
@@ -74,6 +75,7 @@ public sealed class AccountService(IDbContextFactory<AppDbContext> dbFactory)
         account.ShowDecimals = clean.ShowDecimals;
         account.IncludeInReports = clean.IncludeInReports;
         account.Icon = clean.Icon;
+        account.Iban = clean.Iban;
         await db.SaveChangesAsync(ct);
         return Info(account);
     }
@@ -112,9 +114,12 @@ public sealed class AccountService(IDbContextFactory<AppDbContext> dbFactory)
             throw new InputException("That amount is too large.");
         if (input.OpeningDate.Year < 1900)
             throw new InputException("Enter an opening date after 1900.");
-        return input with { Name = name, Currency = currency, Icon = AccountIcons.Normalize(input.Icon) };
+        var iban = Ledger.Iban.Normalize(input.Iban);
+        if (iban.Length > 0 && !Ledger.Iban.IsValid(iban))
+            throw new InputException("That IBAN isn't valid. Check it for typos.");
+        return input with { Name = name, Currency = currency, Icon = AccountIcons.Normalize(input.Icon), Iban = iban.Length == 0 ? null : iban };
     }
 
     private static AccountInfo Info(Account a) =>
-        new(a.Id, a.Name, a.Currency, a.OpeningBalance, a.OpeningDate, a.ShowDecimals, a.IncludeInReports, a.SortOrder, a.Icon);
+        new(a.Id, a.Name, a.Currency, a.OpeningBalance, a.OpeningDate, a.ShowDecimals, a.IncludeInReports, a.SortOrder, a.Icon, a.Iban);
 }

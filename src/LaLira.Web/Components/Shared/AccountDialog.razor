@@ -50,6 +50,14 @@
                     </label>
                 </div>
                 <span class="field-hint">@T["The balance on the opening date. Positions can't be dated before it."]</span>
+                <label class="field">
+                    <span>IBAN <span class="muted">@T["(optional)"]</span></span>
+                    <input class="input input-iban" @bind="_iban" @bind:event="oninput" @onblur="TidyIban" maxlength="42" autocomplete="off" spellcheck="false" placeholder="CH93 0076 2011 6238 5295 7" />
+                    @if (IbanProblem)
+                    {
+                        <span class="field-error">@T["That IBAN isn't valid. Check it for typos."]</span>
+                    }
+                </label>
                 <label class="check">
                     <input type="checkbox" @bind="_includeInReports" /> @T["Include in email reports"]
                 </label>
@@ -78,6 +86,19 @@
     private string _name = "";
     private string _currency = "CHF";
     private string _icon = AccountIcons.Default;
+    private string _iban = "";
+    private bool _ibanTouched;
+
+    // Shown once the field has been left with a complete but wrong IBAN, not while typing.
+    private bool IbanProblem => _ibanTouched && Iban.Normalize(_iban) is { Length: > 0 } c && !Iban.IsValid(c);
+
+    private void TidyIban()
+    {
+        _ibanTouched = true;
+        var compact = Iban.Normalize(_iban);
+        if (Iban.IsValid(compact))
+            _iban = Iban.Format(compact);
+    }
     private string _opening = "";
     private DateOnly _openingDate;
     private bool _showDecimals = true;
@@ -97,6 +118,8 @@
         _opening = existing is null ? "" : Money.FormatForInput(existing.OpeningBalance, T.Format);
         _openingDate = existing?.OpeningDate ?? today;
         _icon = existing?.Icon ?? AccountIcons.Default;
+        _iban = existing?.Iban is { } iban ? Iban.Format(iban) : "";
+        _ibanTouched = false;
         _showDecimals = existing?.ShowDecimals ?? true;
         _includeInReports = existing?.IncludeInReports ?? true;
         _error = null;
@@ -133,7 +156,7 @@
         _busy = true;
         try
         {
-            _error = await _save(new AccountInput(_name, _currency, opening, _openingDate, _showDecimals, _includeInReports, _icon));
+            _error = await _save(new AccountInput(_name, _currency, opening, _openingDate, _showDecimals, _includeInReports, _icon, _iban));
         }
         finally
         {

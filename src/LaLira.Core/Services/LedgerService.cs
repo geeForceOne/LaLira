@@ -6,12 +6,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LaLira.Core.Services;
 
+// MonthEnds: the balance at the end of every month from the opening to today (today's balance
+// for the current month), oldest first, for the chart.
 public sealed record LedgerView(
-    AccountInfo Account, DateOnly Today, long BalanceToday, long BalanceWithUpcoming, int UpcomingCount, IReadOnlyList<LedgerYear> Years);
+    AccountInfo Account, DateOnly Today, long BalanceToday, long BalanceWithUpcoming, int UpcomingCount, IReadOnlyList<LedgerYear> Years,
+    IReadOnlyList<(DateOnly Month, long Balance)> MonthEnds);
 
-public sealed record PositionInput(DateOnly Date, long Amount, string Description);
+public sealed record PositionInput(DateOnly Date, long Amount, string Description, string? Note = null);
 
-public sealed record PositionView(int Id, int AccountId, DateOnly Date, long Amount, string Description, int? RecurringRuleId);
+public sealed record PositionView(int Id, int AccountId, DateOnly Date, long Amount, string Description, int? RecurringRuleId, string? Note = null);
 
 // An account's positions: the list with running balances, and adding, changing and deleting.
 public sealed class LedgerService(IDbContextFactory<AppDbContext> dbFactory, AccountService accounts, UserClock clock)
@@ -22,17 +25,18 @@ public sealed class LedgerService(IDbContextFactory<AppDbContext> dbFactory, Acc
         var today = await clock.TodayAsync(userId, ct);
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var positions = await db.Positions.AsNoTracking().Where(p => p.AccountId == accountId)
-            .Select(p => new LedgerPosition(p.Id, p.Date, p.Amount, p.Description, p.RecurringRuleId))
+            .Select(p => new LedgerPosition(p.Id, p.Date, p.Amount, p.Description, p.RecurringRuleId, p.Note))
             .ToListAsync(ct);
         var built = LedgerBuilder.Build(account.OpeningBalance, account.OpeningDate, positions, today, L.Text(language, "Opening balance"));
-        return new LedgerView(account, today, built.BalanceToday, built.BalanceWithUpcoming, built.UpcomingCount, built.Years);
+        return new LedgerView(account, today, built.BalanceToday, built.BalanceWithUpcoming, built.UpcomingCount, built.Years,
+            LedgerBuilder.MonthEnds(account.OpeningBalance, account.OpeningDate, positions, today));
     }
 
     public async Task<PositionView> GetPositionAsync(string userId, int positionId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         return await db.Positions.AsNoTracking().Where(p => p.Id == positionId && p.Account!.UserId == userId)
-            .Select(p => new PositionView(p.Id, p.AccountId, p.Date, p.Amount, p.Description, p.RecurringRuleId))
+            .Select(p => new PositionView(p.Id, p.AccountId, p.Date, p.Amount, p.Description, p.RecurringRuleId, p.Note))
             .FirstOrDefaultAsync(ct) ?? throw new NotFoundException("That position no longer exists.");
     }
 
@@ -41,10 +45,10 @@ public sealed class LedgerService(IDbContextFactory<AppDbContext> dbFactory, Acc
         var account = await accounts.GetAsync(userId, accountId, ct);
         var clean = Validate(input, account);
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var p = new Position { AccountId = accountId, Date = clean.Date, Amount = clean.Amount, Description = clean.Description };
+        var p = new Position { AccountId = accountId, Date = clean.Date, Amount = clean.Amount, Description = clean.Description, Note = clean.Note };
         db.Positions.Add(p);
         await db.SaveChangesAsync(ct);
-        return new PositionView(p.Id, p.AccountId, p.Date, p.Amount, p.Description, null);
+        return new PositionView(p.Id, p.AccountId, p.Date, p.Amount, p.Description, null, p.Note);
     }
 
     // Adds many at once (CSV import), in one transaction.
@@ -53,7 +57,7 @@ public sealed class LedgerService(IDbContextFactory<AppDbContext> dbFactory, Acc
         var account = await accounts.GetAsync(userId, accountId, ct);
         var clean = inputs.Select(i => Validate(i, account)).ToList();
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        db.Positions.AddRange(clean.Select(i => new Position { AccountId = accountId, Date = i.Date, Amount = i.Amount, Description = i.Description }));
+        db.Positions.AddRange(clean.Select(i => new Position { AccountId = accountId, Date = i.Date, Amount = i.Amount, Description = i.Description, Note = i.Note }));
         await db.SaveChangesAsync(ct);
         return clean.Count;
     }
@@ -67,8 +71,22 @@ public sealed class LedgerService(IDbContextFactory<AppDbContext> dbFactory, Acc
         p.Date = clean.Date;
         p.Amount = clean.Amount;
         p.Description = clean.Description;
+        p.Note = clean.Note;
         await db.SaveChangesAsync(ct);
-        return new PositionView(p.Id, p.AccountId, p.Date, p.Amount, p.Description, p.RecurringRuleId);
+        return new PositionView(p.Id, p.AccountId, p.Date, p.Amount, p.Description, p.RecurringRuleId, p.Note);
+    }
+
+    // Changes only the note (from the note icon in the list); empty removes it.
+    public async Task SetNoteAsync(string userId, int positionId, string? note, CancellationToken ct = default)
+    {
+        var clean = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        if (clean is { Length: > Position.MaxNoteLength })
+            throw new InputException("Keep the note under {0} characters.", Position.MaxNoteLength);
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var updated = await db.Positions.Where(p => p.Id == positionId && p.Account!.UserId == userId)
+            .ExecuteUpdateAsync(u => u.SetProperty(p => p.Note, clean), ct);
+        if (updated == 0)
+            throw new NotFoundException("That position no longer exists.");
     }
 
     public async Task DeleteAsync(string userId, int positionId, CancellationToken ct = default)
@@ -92,6 +110,9 @@ public sealed class LedgerService(IDbContextFactory<AppDbContext> dbFactory, Acc
             throw new InputException("That amount is too large.");
         if (input.Date < account.OpeningDate)
             throw new InputException("The date is before the account's opening date ({0}).", account.OpeningDate);
-        return input with { Description = description };
+        var note = string.IsNullOrWhiteSpace(input.Note) ? null : input.Note.Trim();
+        if (note is { Length: > Position.MaxNoteLength })
+            throw new InputException("Keep the note under {0} characters.", Position.MaxNoteLength);
+        return input with { Description = description, Note = note };
     }
 }

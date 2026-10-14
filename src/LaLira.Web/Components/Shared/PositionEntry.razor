@@ -11,6 +11,10 @@
         <input class="input input-amount entry-amount" @bind="_amount" @bind:event="oninput" placeholder="@T["250 or -100"]"
                aria-label="@T["Amount"]" autocomplete="off" spellcheck="false" />
         <div class="entry-actions">
+            <button type="button" class="btn btn-ghost btn-icon note-button @(string.IsNullOrWhiteSpace(_note) ? "" : "has-note")"
+                    title="@(string.IsNullOrWhiteSpace(_note) ? T["Add a note"] : T["Note: {0}", _note])" aria-label="@T["Note"]" @onclick="EditNoteAsync">
+                <Icon Name="note" Size="16" />
+            </button>
             <button type="submit" class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_amount) || string.IsNullOrWhiteSpace(_description))">
                 @if (Existing is null)
                 {
@@ -62,9 +66,12 @@
     [Parameter] public Func<Task>? OnDelete { get; set; }
     [Parameter] public bool AutoFocus { get; set; }
 
+    [CascadingParameter] private AppUi Ui { get; set; } = default!;
+
     private DateOnly _date;
     private string _description = "";
     private string _amount = "";
+    private string? _note;
     private string? _error;
     private bool _busy;
     private bool _focusPending;
@@ -79,6 +86,7 @@
         _date = Existing?.Date ?? (Today < Account.OpeningDate ? Account.OpeningDate : Today);
         _description = Existing?.Description ?? "";
         _amount = Existing is null ? "" : Money.FormatForInput(Existing.Amount, T.Format);
+        _note = Existing?.Note;
         _error = null;
         _focusPending = AutoFocus;
     }
@@ -107,7 +115,7 @@
         _busy = true;
         try
         {
-            _error = await OnSave(new PositionInput(_date, cents, _description));
+            _error = await OnSave(new PositionInput(_date, cents, _description, _note));
         }
         finally
         {
@@ -118,8 +126,19 @@
             // Ready for the next one: same date, empty fields, cursor in the description.
             _description = "";
             _amount = "";
+            _note = null;
             _focusPending = true;
         }
+    }
+
+    // The note is written in a dialog and saved together with the position.
+    private async Task EditNoteAsync()
+    {
+        var note = await Ui.Prompt.AskAsync(T["Note"], T["Note for this position"], _note ?? "", T["OK"],
+            hint: T["Details that don't fit in the description. Saved with the position."], multiline: true, allowEmpty: true);
+        if (note is null) return;
+        _note = note.Length == 0 ? null : note;
+        _focusPending = true;
     }
 
     private async Task DeleteAsync()

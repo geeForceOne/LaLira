@@ -15,7 +15,7 @@ public sealed record ReportAccount(string Name, string Currency, bool ShowDecima
     public long Out => Lines.Where(l => !l.IsOpening && l.Amount < 0).Sum(l => l.Amount);
 }
 
-// The report email: a summary per account, then every booking of the period with its running balance.
+// The report email: money in and out per account, then every booking of the period. No balances.
 public static class ReportEmail
 {
     public static string PeriodName(Texts t, ReportPeriod period, DateRange range) => period switch
@@ -47,45 +47,40 @@ public static class ReportEmail
         }
         else
         {
-            // Summary.
+            // Summary: money in and out per account. Reports never show balances (the user's choice).
             html.Append($"<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" style=\"width:100%;border-collapse:collapse;font-size:14px;margin:0 0 28px\">");
             html.Append($"<tr style=\"color:{Pencil};font-size:12px;text-transform:uppercase;letter-spacing:.04em\">" +
-                        Th(t["Account"]) + Th(t["In"], true) + Th(t["Out"], true) + Th(t["Balance"], true) + "</tr>");
+                        Th(t["Account"]) + Th(t["In"], true) + Th(t["Out"], true) + "</tr>");
             foreach (var a in accounts)
             {
                 html.Append($"<tr>{Td($"{Enc(a.Name)} <span style=\"color:{Pencil}\">{a.Currency}</span>")}" +
-                            Td(M(a.In, a), true) + Td(M(a.Out, a), true) + Td($"<strong>{M(a.EndBalance, a)}</strong>", true) + "</tr>");
-                text.AppendLine($"{a.Name} ({a.Currency}): {t["In"]} {M(a.In, a)}, {t["Out"]} {M(a.Out, a)}, {t["Balance"]} {M(a.EndBalance, a)}");
+                            Td(M(a.In, a), true) + Td(M(a.Out, a), true) + "</tr>");
+                text.AppendLine($"{a.Name} ({a.Currency}): {t["In"]} {M(a.In, a)}, {t["Out"]} {M(a.Out, a)}");
             }
             html.Append("</table>");
             text.AppendLine();
 
+            // Then every booking of the period, per account.
             foreach (var a in accounts)
             {
                 html.Append($"<h2 style=\"font-size:16px;margin:0 0 8px\">{Enc(a.Name)} <span style=\"font-weight:400;color:{Pencil}\">{a.Currency}</span></h2>");
                 html.Append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" style=\"width:100%;border-collapse:collapse;font-size:14px;margin:0 0 28px\">");
                 text.AppendLine($"== {a.Name} ({a.Currency}) ==");
-
-                var startLabel = a.OpenedInPeriod ? t["Before opening"] : t["Balance on {0}", range.Start.AddDays(-1).ToString("d", t.Format)];
-                html.Append($"<tr style=\"color:{Pencil}\">{Td(startLabel)}{Td("")}{Td(M(a.StartBalance, a), true)}</tr>");
-                text.AppendLine($"{startLabel}: {M(a.StartBalance, a)}");
-
-                if (a.Lines.Count == 0)
+                var lines = a.Lines.Where(l => !l.IsOpening).ToList();
+                if (lines.Count == 0)
                 {
-                    html.Append($"<tr>{Td($"<em style=\"color:{Pencil}\">{Enc(t["No bookings in this period."])}</em>")}{Td("")}{Td("")}</tr>");
+                    html.Append($"<tr>{Td($"<em style=\"color:{Pencil}\">{Enc(t["No bookings in this period."])}</em>")}{Td("")}</tr>");
                     text.AppendLine(t["No bookings in this period."]);
                 }
-                foreach (var l in a.Lines)
+                foreach (var l in lines)
                 {
                     var date = l.Date.ToString("d", t.Format);
                     html.Append($"<tr>{Td($"{Enc(l.Description)}<br><span style=\"color:{Pencil};font-size:12px\">{date}</span>")}" +
-                                Td(M(l.Amount, a), true) + Td(M(l.Balance, a), true) + "</tr>");
-                    text.AppendLine($"{date}  {l.Description}  {M(l.Amount, a)}  = {M(l.Balance, a)}");
+                                Td(M(l.Amount, a), true) + "</tr>");
+                    text.AppendLine($"{date}  {l.Description}  {M(l.Amount, a)}");
                 }
-                var endLabel = t["Balance on {0}", to];
-                html.Append($"<tr>{Td($"<strong>{Enc(endLabel)}</strong>", top: true)}{Td("", top: true)}{Td($"<strong>{M(a.EndBalance, a)}</strong>", true, top: true)}</tr>");
                 html.Append("</table>");
-                text.AppendLine($"{endLabel}: {M(a.EndBalance, a)}").AppendLine();
+                text.AppendLine();
             }
         }
 

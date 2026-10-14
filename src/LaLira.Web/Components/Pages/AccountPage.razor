@@ -33,6 +33,13 @@ else
                 {
                     <span class="tag"><Icon Name="mail" Size="13" /> @T["In email reports"]</span>
                 }
+                @if (a.Iban is { } iban)
+                {
+                    <span class="iban">
+                        <span class="iban-text">@Iban.Format(iban)</span>
+                        <button type="button" class="btn btn-ghost btn-icon btn-sm" title="@T["Copy IBAN"]" aria-label="@T["Copy IBAN"]" @onclick="() => CopyAsync(iban)"><Icon Name="copy" Size="14" /></button>
+                    </span>
+                }
             </p>
         </div>
         <div class="page-actions">
@@ -55,11 +62,13 @@ else
     </div>
 
     var current = _view.Years.FirstOrDefault(y => y.Year == _view.Today.Year);
-    <section class="balance-strip" aria-label="@T["Balance"]">
+    <section class="balance-strip @(_view.MonthEnds.Count > 1 ? "with-chart" : "")" aria-label="@T["Balance"]">
         <div class="balance-main">
             <div class="total-label">@T["Balance today"]</div>
             <div class="total-value num @(_view.BalanceToday < 0 ? "neg" : "")">@Format.Money(_view.BalanceToday, a) <span class="code">@a.Currency</span></div>
         </div>
+        <BalanceChart Points="_view.MonthEnds" ShowDecimals="a.ShowDecimals" />
+        <div class="balance-sides">
         @if (current is not null)
         {
             <div class="balance-side">
@@ -78,11 +87,43 @@ else
                 <div class="num">@Format.Money(_view.BalanceWithUpcoming, a)</div>
             </div>
         }
+        </div>
     </section>
 
     <section class="entry-bar" aria-label="@T["New position"]">
         <PositionEntry Account="a" Today="_view.Today" OnSave="AddAsync" AutoFocus="true" />
     </section>
+
+    var searching = _query.Trim().Length > 0;
+    var matches = searching ? _view.Years.SelectMany(y => y.Rows).Where(Matches).ToList() : [];
+    <div class="ledger-tools">
+        <label class="search-field">
+            <Icon Name="search" Size="16" />
+            <input class="input" type="search" placeholder="@T["Search in this account"]" aria-label="@T["Search in this account"]"
+                   @bind="_query" @bind:event="oninput" @onkeydown="OnSearchKey" autocomplete="off" spellcheck="false" />
+            @if (searching)
+            {
+                <button type="button" class="btn btn-ghost btn-icon btn-sm" title="@T["Clear search"]" aria-label="@T["Clear search"]" @onclick="() => _query = string.Empty"><Icon Name="x" Size="14" /></button>
+            }
+        </label>
+        @if (searching)
+        {
+            <span class="search-summary">
+                @T.Plural(matches.Count, "{0} position", "{0} positions")
+                @if (matches.Count > 0)
+                {
+                    <span> · @T["in"] @Format.Money(matches.Where(r => r.Amount > 0).Sum(r => r.Amount), a) · @T["out"] @Format.Money(matches.Where(r => r.Amount < 0).Sum(r => r.Amount), a)</span>
+                }
+            </span>
+        }
+        else if (_view.Years.Any(y => y.IsPast))
+        {
+            var allOpen = _view.Years.Where(y => y.IsPast).All(y => _openYears.Contains(y.Year));
+            <button type="button" class="btn btn-ghost btn-sm" @onclick="() => ToggleAll(!allOpen)">
+                <Icon Name="@(allOpen ? "fold" : "chevrons")" Size="15" /> @(allOpen ? T["Collapse all"] : T["Expand all"])
+            </button>
+        }
+    </div>
 
     <section class="section ledger-section">
         <table class="ledger">
@@ -96,7 +137,10 @@ else
             </thead>
             @foreach (var year in _view.Years)
             {
-                var open = !year.IsPast || _openYears.Contains(year.Year);
+                // While searching, only years with a match show, opened, with just the matching rows.
+                if (searching && !year.Rows.Any(Matches))
+                    continue;
+                var open = searching || !year.IsPast || _openYears.Contains(year.Year);
                 <tbody class="ledger-year @(year.IsPast ? "past" : "") @(open ? "open" : "")" id="@($"year-{year.Year}")" @key="year.Year">
                     @if (year.IsPast)
                     {
@@ -124,12 +168,14 @@ else
                     }
                     @if (open)
                     {
-                        @if (year.Rows.Count == 0 || year.Rows.All(r => r.IsOpening) && year.Year != a.OpeningDate.Year)
+                        @if (!searching && (year.Rows.Count == 0 || year.Rows.All(r => r.IsOpening) && year.Year != a.OpeningDate.Year))
                         {
                             <tr class="ledger-empty"><td colspan="4">@T["No positions in {0} yet.", year.Year]</td></tr>
                         }
                         @foreach (var r in year.Rows)
                         {
+                            if (searching && !Matches(r))
+                                continue;
                             if (r.IsOpening)
                             {
                                 <tr class="ledger-row opening">
@@ -147,7 +193,7 @@ else
                                     <tr class="editing" @key="r.PositionId">
                                         <td colspan="4">
                                             <PositionEntry Account="a" Today="_view.Today" AutoFocus="true"
-                                                           Existing="new PositionView(row.PositionId!.Value, a.Id, row.Date, row.Amount, row.Description, row.RecurringRuleId)"
+                                                           Existing="new PositionView(row.PositionId!.Value, a.Id, row.Date, row.Amount, row.Description, row.RecurringRuleId, row.Note)"
                                                            OnSave="input => UpdateAsync(row.PositionId!.Value, input)" OnCancel="() => _editing = null"
                                                            OnDelete="() => DeleteAsync(row)" />
                                         </td>
@@ -159,6 +205,12 @@ else
                                     <td class="col-date num">@Format.Date(r.Date)</td>
                                     <td>
                                         <span class="desc">@r.Description</span>
+                                        @if (r.Note is not null)
+                                        {
+                                            <button type="button" class="row-note" title="@r.Note" aria-label="@T["Note"]" @onclick="() => EditNoteAsync(r)" @onclick:stopPropagation="true">
+                                                <Icon Name="note" Size="14" />
+                                            </button>
+                                        }
                                         @if (r.RecurringRuleId is not null)
                                         {
                                             <span class="row-icon" title="@T["Booked by a recurring position"]"><Icon Name="repeat" Size="13" /></span>
@@ -176,6 +228,10 @@ else
                         }
                     }
                 </tbody>
+            }
+            @if (searching && matches.Count == 0)
+            {
+                <tbody><tr class="ledger-empty"><td colspan="4">@T["Nothing in this account matches «{0}».", _query.Trim()]</td></tr></tbody>
             }
         </table>
     </section>
@@ -209,6 +265,7 @@ else
     private bool _menu;
     private AccountDialog _accountDialog = default!;
     private int? _editing;
+    private string _query = "";
     private RuleDialog _ruleDialog = default!;
 
     protected override async Task OnParametersSetAsync()
@@ -249,6 +306,45 @@ else
     {
         if (e.Key is "Enter" or " ") ToggleYear(year);
     }
+
+    private void ToggleAll(bool open)
+    {
+        _openYears.Clear();
+        if (open && _view is not null)
+            foreach (var y in _view.Years.Where(y => y.IsPast))
+                _openYears.Add(y.Year);
+    }
+
+    private void OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") _query = "";
+    }
+
+    // A position matches when the search text is in its description or note (ignoring case and
+    // accents), its amount ("250", "-4200", "1'250.40") or its date as shown ("2019", "03.2012").
+    private bool Matches(LedgerRow r)
+    {
+        if (r.IsOpening || _view is null) return false;
+        var q = Fold(_query.Trim());
+        if (q.Length == 0) return true;
+        if (Fold(r.Description).Contains(q) || (r.Note is not null && Fold(r.Note).Contains(q)))
+            return true;
+        var number = NumberOnly(q);
+        if (number.Any(char.IsAsciiDigit)
+            && (NumberOnly(Money.FormatForInput(r.Amount, T.Format)).Contains(number) || NumberOnly(Format.Money(r.Amount, true)).Contains(number)))
+            return true;
+        return Format.Date(r.Date).Contains(_query.Trim());
+    }
+
+    private static string Fold(string text)
+    {
+        var decomposed = text.ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD);
+        return new string(decomposed.Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark).ToArray());
+    }
+
+    // Digits, the minus and the decimal mark only: "1'250.40" and "1250.40" compare equal.
+    private string NumberOnly(string text) =>
+        new(text.Replace('\u2212', '-').Where(c => char.IsAsciiDigit(c) || c == '-' || c.ToString() == T.Format.NumberFormat.NumberDecimalSeparator).ToArray());
 
     private void OnRowKey(KeyboardEventArgs e, int? positionId)
     {
@@ -291,6 +387,18 @@ else
         // Called from the entry row's callback, which doesn't re-render this page by itself.
         StateHasChanged();
         return null;
+    }
+
+    // The note icon in a row opens the note to read or change, without editing the position.
+    private async Task EditNoteAsync(LedgerRow row)
+    {
+        if (row.PositionId is not { } id) return;
+        var note = await Ui.Prompt.AskAsync(T["Note"], $"{row.Description} · {Format.Date(row.Date)}", row.Note ?? "", T["Save"],
+            multiline: true, allowEmpty: true);
+        if (note is null || note == (row.Note ?? "")) return;
+        var userId = await UserIdAsync();
+        if (await RunAsync(() => Ledger.SetNoteAsync(userId, id, note, PageToken)))
+            await LoadAsync();
     }
 
     private async Task DeleteAsync(LedgerRow row)
@@ -376,6 +484,14 @@ else
             ? T.Plural(booked, "Saved. {0} position was booked right away.", "Saved. {0} positions were booked right away.")
             : T["Recurring position saved."]);
         await ReloadAsync();
+    }
+
+    private async Task CopyAsync(string text)
+    {
+        if (await JS.InvokeAsync<bool>("lalira.copyText", text))
+            Ui.Toast.Success(T["IBAN copied."]);
+        else
+            Ui.Toast.Error(T["The browser didn't allow copying. Select the text and copy it by hand."]);
     }
 
     private async Task ExportAsync()

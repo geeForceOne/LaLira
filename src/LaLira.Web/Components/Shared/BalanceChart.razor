@@ -1,0 +1,76 @@
+@using System.Globalization
+@using System.Text.Json
+@inject Texts T
+@inject IJSRuntime JS
+
+@* The account's balance over time, in the balance box on computers and tablets (hidden on phones).
+   One series: a 2px line with a light area, the latest value marked, start and end labelled below.
+   Hover shows a crosshair and the month's balance; that part runs in the browser (lalira.balanceChart)
+   so moving the pointer doesn't go through the server. Numbers in the SVG are invariant-formatted. *@
+@if (Points.Count > 1)
+{
+    var data = Visible;
+    var min = data.Min(p => p.Balance);
+    var max = data.Max(p => p.Balance);
+    var span = Math.Max(1, max - min);
+    var lo = min - span * 0.08;
+    var hi = max + span * 0.06;
+    double X(int i) => data.Count == 1 ? 0 : i * 100.0 / (data.Count - 1);
+    double Y(long v) => (1 - (v - lo) / (hi - lo)) * 100.0;
+    var line = string.Join(" ", data.Select((p, i) => FormattableString.Invariant($"{X(i):0.###},{Y(p.Balance):0.###}")));
+    var area = FormattableString.Invariant($"M0,100 L") + line.Replace(" ", " L") + " L100,100 Z";
+    var zero = min < 0 && max > 0 ? Y(0) : (double?)null;
+    var labels = data.Select(p => $"{L.MonthName(T.Language, p.Month.Month)} {p.Month.Year} · {Money.Format(p.Balance, T.Format, ShowDecimals)}").ToList();
+    var ys = data.Select(p => Math.Round(Y(p.Balance), 3)).ToList();
+
+    <div class="bchart">
+        <div class="bchart-top">
+            <div class="bchart-range" role="group" aria-label="@T["Period"]">
+                @foreach (var (months, label) in Ranges)
+                {
+                    <button type="button" aria-pressed="@(_months == months)" @onclick="() => _months = months">@T[label]</button>
+                }
+            </div>
+        </div>
+        <div class="bchart-plot" @ref="_plot" role="img"
+             aria-label="@T["Balance from {0} to {1}", labels[0], labels[^1]]"
+             data-labels="@JsonSerializer.Serialize(labels)" data-ys="@JsonSerializer.Serialize(ys)">
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                <path class="bchart-area" d="@area" />
+                @if (zero is { } z)
+                {
+                    <line class="bchart-zero" x1="0" x2="100" y1="@z.ToString("0.###", CultureInfo.InvariantCulture)" y2="@z.ToString("0.###", CultureInfo.InvariantCulture)" />
+                }
+                <polyline class="bchart-line" points="@line" />
+            </svg>
+            <span class="bchart-end" style="@FormattableString.Invariant($"left:100%;top:{Y(data[^1].Balance):0.###}%")"></span>
+            <span class="bchart-cursor" hidden></span>
+            <span class="bchart-dot" hidden></span>
+            <span class="bchart-tip" hidden></span>
+        </div>
+        <div class="bchart-axis">
+            <span>@labels[0]</span>
+            <span>@($"{L.MonthName(T.Language, data[^1].Month.Month)} {data[^1].Month.Year}")</span>
+        </div>
+    </div>
+}
+
+@code {
+    // Month-end balances, oldest first (LedgerView.MonthEnds).
+    [Parameter, EditorRequired] public IReadOnlyList<(DateOnly Month, long Balance)> Points { get; set; } = [];
+    [Parameter] public bool ShowDecimals { get; set; } = true;
+
+    private static readonly (int Months, string Label)[] Ranges = [(12, "1 year"), (60, "5 years"), (0, "All")];
+
+    private int _months = 60;
+    private ElementReference _plot;
+
+    private IReadOnlyList<(DateOnly Month, long Balance)> Visible =>
+        _months == 0 || Points.Count <= _months ? Points : Points.Skip(Points.Count - _months).ToList();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Points.Count <= 1) return;
+        try { await JS.InvokeVoidAsync("lalira.balanceChart", _plot); } catch (JSException) { }
+    }
+}

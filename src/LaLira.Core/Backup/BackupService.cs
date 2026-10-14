@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text.Json;
 using LaLira.Core.Data;
 using LaLira.Core.Localization;
+using LaLira.Core.Services;
 using LaLira.Core.Models;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -16,10 +17,13 @@ public sealed record BackupSummary(DateTime CreatedUtc, string AppVersion, int U
 public sealed record BackupSettingsView(bool AutoBackups, TimeOnly Time, int Keep, string TimeZone, DateTime? LastAutoBackupAt, string? LastAutoBackupError);
 
 // Backups of the whole instance: the database plus the Data Protection keys (without them the
-// saved SMTP password can't be read), zipped with a small description. Automatic ones go to the
+// saved SMTP password can't be read), zipped with a small description. Each zip also holds every
+// account of every user as a CSV file (csv/<user>/<account>.csv), readable without the app, so
+// single accounts can be taken out or re-imported; a restore uses only the database. Automatic ones go to the
 // backups folder; downloads can be password-protected. A restore is checked first, then applied
 // on the next start, when nothing has the database open (the app restarts itself for it).
-public sealed class BackupService(IDbContextFactory<AppDbContext> dbFactory, StoragePaths paths, TimeProvider time, ILogger<BackupService> logger)
+public sealed class BackupService(
+    IDbContextFactory<AppDbContext> dbFactory, StoragePaths paths, TimeProvider time, CsvService csv, SettingsService settings, ILogger<BackupService> logger)
 {
     public const string AutoPrefix = "auto-";
     public const string SafetyPrefix = "before-restore-";
@@ -47,9 +51,9 @@ public sealed class BackupService(IDbContextFactory<AppDbContext> dbFactory, Sto
 
     // Writes a backup into the backups folder and removes the oldest beyond `keep` with the same
     // prefix. suffix goes after the time stamp (e.g. the version an update is going to).
-    public async Task<BackupFile> CreateStoredAsync(string prefix, int keep, CancellationToken ct = default, string? suffix = null)
+    public async Task<BackupFile> CreateStoredAsync(string prefix, int keep, CancellationToken ct = default, string? suffix = null, bool withCsv = true)
     {
-        var zip = await CreateZipAsync(ct);
+        var zip = await CreateZipAsync(ct, withCsv);
         var name = $"{prefix}{time.GetUtcNow().UtcDateTime:yyyy-MM-dd_HHmmss}{suffix}.zip";
         Directory.CreateDirectory(paths.BackupsPath);
         var path = Path.Combine(paths.BackupsPath, name);
@@ -176,7 +180,8 @@ public sealed class BackupService(IDbContextFactory<AppDbContext> dbFactory, Sto
     // so an update that goes wrong can be undone. Throws when it can't be made; the caller then
     // doesn't update.
     public Task<BackupFile> CreateBeforeUpdateAsync(CancellationToken ct = default) =>
-        CreateStoredAsync(UpdatePrefix, SafetyKeep, ct, "-" + AppInfo.Version);
+        // Without the CSV files: the database still has the old schema, which the export can't read.
+        CreateStoredAsync(UpdatePrefix, SafetyKeep, ct, "-" + AppInfo.Version, withCsv: false);
 
     // Called once at startup, before the database or the key ring is opened: swaps in a restore
     // that ScheduleRestoreAsync prepared. Returns true when one was applied.
@@ -267,7 +272,7 @@ public sealed class BackupService(IDbContextFactory<AppDbContext> dbFactory, Sto
         return s.LastAutoBackupError is null;
     }
 
-    private async Task<byte[]> CreateZipAsync(CancellationToken ct)
+    private async Task<byte[]> CreateZipAsync(CancellationToken ct, bool withCsv = true)
     {
         Directory.CreateDirectory(paths.DataDirectory);
         var copy = Path.Combine(paths.DataDirectory, $"backup-{Guid.NewGuid():N}.tmp");
@@ -290,6 +295,8 @@ public sealed class BackupService(IDbContextFactory<AppDbContext> dbFactory, Sto
                 if (Directory.Exists(paths.KeysPath))
                     foreach (var key in Directory.EnumerateFiles(paths.KeysPath, "*.xml"))
                         zip.CreateEntryFromFile(key, KeysEntry + Path.GetFileName(key));
+                if (withCsv)
+                    await AddCsvFilesAsync(zip, ct);
                 var info = new BackupInfo(1, AppInfo.Version, time.GetUtcNow().UtcDateTime);
                 await using var s = zip.CreateEntry(InfoEntry).Open();
                 await JsonSerializer.SerializeAsync(s, info, cancellationToken: ct);
@@ -300,6 +307,46 @@ public sealed class BackupService(IDbContextFactory<AppDbContext> dbFactory, Sto
         {
             TryDelete(copy);
         }
+    }
+
+    // Every account of every user as csv/<user's email>/<account>.csv, in the owner's language and
+    // region format, the same as the account's own CSV export. A CSV that can't be written is
+    // logged and left out; it never stops the backup.
+    private async Task AddCsvFilesAsync(ZipArchive zip, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var users = await db.Users.AsNoTracking().Select(u => new { u.Id, u.Email, u.UserName }).ToListAsync(ct);
+            var accounts = await db.Accounts.AsNoTracking().Select(a => new { a.Id, a.UserId, a.Name }).ToListAsync(ct);
+            foreach (var user in users)
+            {
+                var mine = accounts.Where(a => a.UserId == user.Id).ToList();
+                if (mine.Count == 0) continue;
+                var s = await settings.GetAsync(user.Id, ct);
+                var t = new Texts(s.Language, Regions.Culture(s.RegionFormat));
+                var folder = "csv/" + SafeName(user.Email ?? user.UserName ?? user.Id) + "/";
+                foreach (var a in mine)
+                {
+                    var (_, content) = await csv.ExportAsync(user.Id, a.Id, t, ct);
+                    var duplicate = mine.Count(x => SafeName(x.Name) == SafeName(a.Name)) > 1;
+                    var entry = zip.CreateEntry(folder + SafeName(a.Name) + (duplicate ? $"-{a.Id}" : "") + ".csv", CompressionLevel.Optimal);
+                    await using var stream = entry.Open();
+                    await stream.WriteAsync(content, ct);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "The CSV files couldn't be added to the backup; the database is in it anyway");
+        }
+    }
+
+    private static string SafeName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars().Concat(['/', '\\', ':']).ToHashSet();
+        var clean = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim().Trim('.');
+        return clean.Length == 0 ? "account" : clean;
     }
 
     private static BackupFile ToFile(FileInfo f) =>

@@ -3,7 +3,7 @@ namespace LaLira.Core.Ledger;
 // One line of an account's list: a position, or the opening balance.
 public sealed record LedgerRow(
     int? PositionId, DateOnly Date, long Amount, string Description, long Balance,
-    bool IsUpcoming, bool IsOpening, int? RecurringRuleId);
+    bool IsUpcoming, bool IsOpening, int? RecurringRuleId, string? Note = null);
 
 // A calendar year of an account. Past years are shown as one "31.12." line with EndBalance and
 // open on request; Rows are newest first.
@@ -13,7 +13,7 @@ public sealed record LedgerYear(int Year, long StartBalance, long EndBalance, lo
     public int PositionCount => Rows.Count(r => !r.IsOpening);
 }
 
-public sealed record LedgerPosition(int Id, DateOnly Date, long Amount, string Description, int? RecurringRuleId);
+public sealed record LedgerPosition(int Id, DateOnly Date, long Amount, string Description, int? RecurringRuleId, string? Note = null);
 
 // Builds the account's list with running balances. Positions on the same day keep the order they
 // were entered in (by id). Anything dated after today is "upcoming": listed, but not in today's balance.
@@ -35,7 +35,7 @@ public static class LedgerBuilder
             balance += p.Amount;
             if (p.Date <= today)
                 balanceToday += p.Amount;
-            rows.Add(new LedgerRow(p.Id, p.Date, p.Amount, p.Description, balance, p.Date > today, false, p.RecurringRuleId));
+            rows.Add(new LedgerRow(p.Id, p.Date, p.Amount, p.Description, balance, p.Date > today, false, p.RecurringRuleId, p.Note));
         }
 
         var firstYear = openingDate.Year;
@@ -58,6 +58,25 @@ public static class LedgerBuilder
         years.Reverse();
 
         return new Result(balanceToday, balance, rows.Count(r => r.IsUpcoming && !r.IsOpening), years);
+    }
+
+    // The balance at the end of each month from the opening month to today's month (that one at
+    // today), oldest first. Upcoming positions don't count.
+    public static IReadOnlyList<(DateOnly Month, long Balance)> MonthEnds(long openingBalance, DateOnly openingDate, IEnumerable<LedgerPosition> positions, DateOnly today)
+    {
+        var ordered = positions.Where(p => p.Date <= today).OrderBy(p => p.Date).ToList();
+        var result = new List<(DateOnly, long)>();
+        var balance = openingBalance;
+        var i = 0;
+        for (var month = new DateOnly(openingDate.Year, openingDate.Month, 1); month <= today; month = month.AddMonths(1))
+        {
+            var end = month.AddMonths(1).AddDays(-1);
+            if (end > today) end = today;
+            while (i < ordered.Count && ordered[i].Date <= end)
+                balance += ordered[i++].Amount;
+            result.Add((month, balance));
+        }
+        return result;
     }
 
     // The balance at the end of `date`.

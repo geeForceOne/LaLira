@@ -31,6 +31,10 @@ namespace LaLira.Core.Data.Migrations
                         .HasMaxLength(3)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Iban")
+                        .HasMaxLength(34)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Icon")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -302,6 +306,10 @@ namespace LaLira.Core.Data.Migrations
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(2000)
                         .HasColumnType("TEXT");
 
                     b.Property<DateOnly?>("OccurrenceDate")

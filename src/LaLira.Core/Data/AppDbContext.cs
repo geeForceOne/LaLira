@@ -36,6 +36,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
             e.Property(x => x.Name).HasMaxLength(Account.MaxNameLength);
             e.Property(x => x.Currency).HasMaxLength(3);
             e.Property(x => x.Icon).HasMaxLength(16).HasDefaultValue(AccountIcons.Default);
+            e.Property(x => x.Iban).HasMaxLength(Account.MaxIbanLength);
             e.HasIndex(x => x.UserId);
         });
 
@@ -45,6 +46,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
             // Deleting a rule keeps what it booked.
             e.HasOne<RecurringRule>().WithMany().HasForeignKey(x => x.RecurringRuleId).OnDelete(DeleteBehavior.SetNull);
             e.Property(x => x.Description).HasMaxLength(Position.MaxDescriptionLength);
+            e.Property(x => x.Note).HasMaxLength(Position.MaxNoteLength);
             e.HasIndex(x => new { x.AccountId, x.Date });
             e.HasIndex(x => new { x.RecurringRuleId, x.OccurrenceDate }).IsUnique();
         });
