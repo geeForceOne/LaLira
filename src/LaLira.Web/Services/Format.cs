@@ -19,8 +19,10 @@ public static class Format
 
     public static string Date(DateOnly date) => date.ToString("d", C);
 
-    // "Tue, 14.10.2026"
-    public static string DateWithDay(DateOnly date) => date.ToString("ddd", C).TrimEnd('.') + ", " + Date(date);
+    // "Tue, 14.10.2026": the weekday in the UI language, the date in the region format (English
+    // with Swiss formats must not say "Mi").
+    public static string DateWithDay(DateOnly date) =>
+        CultureInfo.CurrentUICulture.DateTimeFormat.GetAbbreviatedDayName(date.DayOfWeek).TrimEnd('.') + ", " + Date(date);
 
     public static string Date(DateTime utc, string timeZone) => Regions.LocalNow(utc, timeZone).ToString("d", C);
 
@@ -55,7 +57,7 @@ public static class Format
 
     // "on the 1st" / "on the last day" / "on Mondays"
     public static string When(Texts t, RuleView r) => r.Frequency == Core.Models.Frequency.Weekly
-        ? t["on {0}", r.StartDate.ToString("dddd", C)]
+        ? t["on {0}", CultureInfo.CurrentUICulture.DateTimeFormat.GetDayName(r.StartDate.DayOfWeek)]
         : r.DayOfMonth >= RuleSchedule.LastDay ? t["on the last day"] : t["on day {0}", r.DayOfMonth];
 
     public static string Period(Texts t, ReportPeriod p) => p switch
