@@ -2,14 +2,14 @@
 
 Simple, self-hosted bookkeeping for your accounts. Each account has a currency, a starting balance and a list of money in and out with a running balance; earlier years are summed up as their year-end balance. Recurring bookings book themselves, even after the app was down, and a report arrives by email when the month is over.
 
-![The overview: totals per currency, every account with its balance and this month's money in and out, and the recurring bookings coming up](docs/images/lalira-overview.jpg)
+![The sign-in page](docs/images/lalira-signin.jpg)
+
+![The overview: totals per currency with their balance charts, every account with its balance and this month's money in and out, and the recurring bookings coming up](docs/images/lalira-overview.jpg)
 
 ![An account: the entry row for new positions, and the list with its running balance](docs/images/lalira-account.jpg)
 
-![The sign-in page](docs/images/lalira-signin.jpg)
-
-- **Accounts and positions**: a date, a description and an amount (a minus means money out), typed straight into the list, with an optional note. The current year shows every position; older years show one 31.12. line that opens on click, or all at once, or are hidden with "Only current year".
-- **Balance chart and search**: the balance over 1 year, 5 years or everything, with grid lines and amounts, and a search through an account's descriptions, notes, amounts and dates.
+- **Accounts and positions**: a date, a description and an amount (a minus means money out), typed straight into the list (dates also as digits only, like 29012016), with an optional note. The current year shows every position; older years show one 31.12. line that opens on click, or all at once, or are hidden with "Only current year".
+- **Balance charts and search**: the balance of each account and of each currency total over 1 year, 5 years or everything, with grid lines and amounts, and a search through an account's descriptions, notes, amounts and dates.
 - **Your order**: sort the accounts on the overview by dragging a card or with the small arrows in its corners; the sidebar and every list follow.
 - **IBAN**: optional per account, checked for typos, with a copy button.
 - **Recurring positions**: weekly, monthly, quarterly or yearly, with placeholders such as `Deposit {month}` → "Deposit October". Missed dates are booked with their own date as soon as the app is back.

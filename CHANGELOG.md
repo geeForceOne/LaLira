@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.3.0 - 2026-10-15
+
+### New
+- Each total on the overview has a balance chart (1 year, 5 years or everything).
+- The small charts on the account cards show grid lines with their amounts.
+- Dates can be typed as digits only: 29012016, 290116 or 2901 (this year), in your region's order.
+
 ## 1.2.0 - 2026-10-15
 
 ### New
