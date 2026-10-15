@@ -1,5 +1,15 @@
 # Release notes
 
+## 1.2.0 - 2026-10-15
+
+### New
+- Sort your accounts on the overview: drag a card, or use the small arrows in its corners.
+- "Only current year": a switch per account that hides older years from the list (search still finds them).
+- The balance chart shows grid lines with their amounts.
+
+### Improved
+- Minor fixes and updates.
+
 ## 1.1.0 - 2026-10-14
 
 ### New
