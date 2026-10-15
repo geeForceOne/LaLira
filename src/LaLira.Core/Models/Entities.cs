@@ -72,6 +72,9 @@ public sealed class Account
     // Display only: amounts are always stored exactly.
     public bool ShowDecimals { get; set; } = true;
     public bool IncludeInReports { get; set; } = true;
+
+    // The account page lists only this year (and upcoming ones); search still covers every year.
+    public bool OnlyCurrentYear { get; set; }
     public int SortOrder { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

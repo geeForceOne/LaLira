@@ -46,12 +46,16 @@ builder.Services.AddAuthentication(options =>
     .AddIdentityCookies();
 builder.Services.ConfigureApplicationCookie(options =>
 {
+    // Its own name: cookies ignore the port, so with the default name another ASP.NET Identity app
+    // on the same host (Recall, for example) would overwrite this one and sign people out.
+    options.Cookie.Name = ".LaLira.Auth";
     options.LoginPath = "/account/login";
     options.AccessDeniedPath = "/";
     options.ExpireTimeSpan = TimeSpan.FromDays(30);
     options.SlidingExpiration = true;
 });
 builder.Services.AddAuthorization();
+builder.Services.AddAntiforgery(options => options.Cookie.Name = ".LaLira.Antiforgery");
 
 builder.Services.AddIdentityCore<AppUser>(options =>
     {

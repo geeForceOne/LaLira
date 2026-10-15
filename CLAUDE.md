@@ -86,3 +86,4 @@ Latest .NET (currently .NET 10, `net10.0`), Blazor Server, `.slnx` solution. Bus
 - **Gotcha:** numbers written into SVG attributes must use the invariant culture (`FormattableString.Invariant`, `ToString(CultureInfo.InvariantCulture)`); with de-DE formatting "6.2" becomes "6,2" and the shape disappears.
 - **Gotcha:** a component callback passed as a plain `Func<...>` (not EventCallback) doesn't re-render the parent; call StateHasChanged after it changes state.
 - **Gotcha:** don't name a component parameter `Assets`; it collides with `ComponentBase.Assets` in .NET 10.
+- **Gotcha:** Blazor renders a bool attribute value `true` as an empty attribute and drops it for `false`, so `aria-pressed="@x"` never matches `[aria-pressed="true"]`. Write `aria-pressed="@(x ? "true" : "false")"` (same for aria-expanded and aria-checked).

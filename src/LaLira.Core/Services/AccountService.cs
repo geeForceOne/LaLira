@@ -7,7 +7,7 @@ namespace LaLira.Core.Services;
 
 public sealed record AccountInfo(
     int Id, string Name, string Currency, long OpeningBalance, DateOnly OpeningDate,
-    bool ShowDecimals, bool IncludeInReports, int SortOrder, string Icon, string? Iban = null);
+    bool ShowDecimals, bool IncludeInReports, int SortOrder, string Icon, string? Iban = null, bool OnlyCurrentYear = false);
 
 public sealed record AccountInput(
     string Name, string Currency, long OpeningBalance, DateOnly OpeningDate, bool ShowDecimals, bool IncludeInReports, string Icon, string? Iban = null);
@@ -89,6 +89,16 @@ public sealed class AccountService(IDbContextFactory<AppDbContext> dbFactory)
             throw new NotFoundException("That account no longer exists.");
     }
 
+    // The account page's "Only current year" switch, saved with the account.
+    public async Task SetOnlyCurrentYearAsync(string userId, int accountId, bool on, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var changed = await db.Accounts.Where(a => a.Id == accountId && a.UserId == userId)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.OnlyCurrentYear, on), ct);
+        if (changed == 0)
+            throw new NotFoundException("That account no longer exists.");
+    }
+
     // Saves a new order; ids not belonging to the person are ignored.
     public async Task ReorderAsync(string userId, IReadOnlyList<int> accountIds, CancellationToken ct = default)
     {
@@ -121,5 +131,5 @@ public sealed class AccountService(IDbContextFactory<AppDbContext> dbFactory)
     }
 
     private static AccountInfo Info(Account a) =>
-        new(a.Id, a.Name, a.Currency, a.OpeningBalance, a.OpeningDate, a.ShowDecimals, a.IncludeInReports, a.SortOrder, a.Icon, a.Iban);
+        new(a.Id, a.Name, a.Currency, a.OpeningBalance, a.OpeningDate, a.ShowDecimals, a.IncludeInReports, a.SortOrder, a.Icon, a.Iban, a.OnlyCurrentYear);
 }

@@ -422,7 +422,6 @@
   "Placeholders": "Platzhalter",
   "Use these in a description; they're filled in with the booking date, month names in the language you pick for the rule.": "Verwenden Sie diese in einer Beschreibung; sie werden mit dem Buchungsdatum gefüllt, Monatsnamen in der Sprache, die Sie für den Dauerauftrag wählen.",
   "Release notes": "Versionshinweise",
-  "What changed in each version of {0}.": "Was sich in jeder Version von {0} geändert hat.",
   "Email reports": "E-Mail-Berichte",
   "This server can't send email yet, so reports wait until an administrator sets it up under Admin settings.": "Dieser Server kann noch keine E-Mails senden. Berichte warten, bis die Administration das in den Admin-Einstellungen einrichtet.",
   "Your reports": "Ihre Berichte",
@@ -579,5 +578,12 @@
   "5 years": "5 Jahre",
   "All": "Alle",
   "An overview of every booking in the period and the money in and out per account. It goes to your email at 07:00 on the first day after the period.": "Eine Übersicht aller Buchungen des Zeitraums und der Ein- und Ausgänge pro Konto. Sie geht um 07:00 am ersten Tag nach dem Zeitraum an Ihre E-Mail-Adresse.",
-  "A backup holds everything: all users, accounts, positions and settings, plus the keys that unlock the saved mail password. It also contains every account of every user as a CSV file, readable without the app. Keep downloaded backups somewhere safe.": "Ein Backup enthält alles: alle Benutzer, Konten, Buchungen und Einstellungen, dazu die Schlüssel für das gespeicherte Mail-Passwort. Zusätzlich enthält es jedes Konto aller Benutzer als CSV-Datei, lesbar ohne die App. Bewahren Sie heruntergeladene Backups sicher auf."
+  "A backup holds everything: all users, accounts, positions and settings, plus the keys that unlock the saved mail password. It also contains every account of every user as a CSV file, readable without the app. Keep downloaded backups somewhere safe.": "Ein Backup enthält alles: alle Benutzer, Konten, Buchungen und Einstellungen, dazu die Schlüssel für das gespeicherte Mail-Passwort. Zusätzlich enthält es jedes Konto aller Benutzer als CSV-Datei, lesbar ohne die App. Bewahren Sie heruntergeladene Backups sicher auf.",
+  "Move {0} earlier": "{0} nach vorne verschieben",
+  "Move {0} later": "{0} nach hinten verschieben",
+  "drag the cards to sort them": "Karten zum Sortieren ziehen",
+  "Only current year": "Nur aktuelles Jahr",
+  "{0} older year hidden.": "{0} älteres Jahr ausgeblendet.",
+  "{0} older years hidden.": "{0} ältere Jahre ausgeblendet.",
+  "Show all years": "Alle Jahre anzeigen"
 }

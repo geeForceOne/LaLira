@@ -61,27 +61,45 @@ else
         <section class="section">
             <div class="section-head">
                 <h2>@T["Accounts"]<span class="count">@_view.Accounts.Count</span></h2>
-                <span class="muted small">@T["In and out: this month so far"]</span>
+                <span class="muted small">@T["In and out: this month so far"]<span class="drag-hint"> · @T["drag the cards to sort them"]</span></span>
             </div>
             <div class="acct-grid">
-                @foreach (var c in _view.Accounts)
+                @for (var i = 0; i < _cards.Count; i++)
                 {
-                    <a class="acct-card" href="@($"accounts/{c.Account.Id}")" @key="c.Account.Id">
-                        <div class="acct-top">
-                            <span class="acct-name"><span class="acct-icon"><Icon Name="@c.Account.Icon" Size="16" /></span>@c.Account.Name</span>
-                            <span class="code">@c.Account.Currency</span>
-                        </div>
-                        <div class="acct-balance num @(c.BalanceToday < 0 ? "neg" : "")">@Format.Money(c.BalanceToday, c.Account)</div>
-                        <Sparkline Values="c.MonthEndBalances" Label="@T["Balance over the last 12 months"]" />
-                        <div class="acct-flow">
-                            <span><span class="flow-label">@T["In"]</span> <span class="num">@Format.Money(c.MonthIn, c.Account)</span></span>
-                            <span><span class="flow-label">@T["Out"]</span> <span class="num">@Format.Money(c.MonthOut, c.Account)</span></span>
-                            @if (c.UpcomingCount > 0)
-                            {
-                                <span class="tag" title="@T["Positions dated after today"]">@T.Plural(c.UpcomingCount, "{0} upcoming", "{0} upcoming")</span>
-                            }
-                        </div>
-                    </a>
+                    var c = _cards[i];
+                    var index = i;
+                    // Drag a card to its place; the up/down buttons do the same on phones and from the keyboard.
+                    <div class="acct-slot @(_dragId == c.Account.Id ? "dragging" : "")" @key="c.Account.Id"
+                         @ondragstart="() => _dragId = c.Account.Id" @ondragenter="() => DragOver(c.Account.Id)"
+                         @ondragover:preventDefault="true" @ondrop:preventDefault="true" @ondragend="DragEndAsync">
+                        <a class="acct-card" href="@($"accounts/{c.Account.Id}")" draggable="true">
+                            <div class="acct-top">
+                                <span class="acct-name"><span class="acct-icon"><Icon Name="@c.Account.Icon" Size="16" /></span>@c.Account.Name</span>
+                                <span class="code">@c.Account.Currency</span>
+                            </div>
+                            <div class="acct-balance num @(c.BalanceToday < 0 ? "neg" : "")">@Format.Money(c.BalanceToday, c.Account)</div>
+                            <Sparkline Values="c.MonthEndBalances" Label="@T["Balance over the last 12 months"]" />
+                            <div class="acct-flow">
+                                <span><span class="flow-label">@T["In"]</span> <span class="num">@Format.Money(c.MonthIn, c.Account)</span></span>
+                                <span><span class="flow-label">@T["Out"]</span> <span class="num">@Format.Money(c.MonthOut, c.Account)</span></span>
+                                @if (c.UpcomingCount > 0)
+                                {
+                                    <span class="tag" title="@T["Positions dated after today"]">@T.Plural(c.UpcomingCount, "{0} upcoming", "{0} upcoming")</span>
+                                }
+                            </div>
+                        </a>
+                        @* Move earlier (bottom left) and later (bottom right); on phones the cards stack, so the arrows point up and down. *@
+                        @if (index > 0)
+                        {
+                            <button type="button" class="acct-arrow acct-arrow-earlier" title="@T["Move {0} earlier", c.Account.Name]"
+                                    aria-label="@T["Move {0} earlier", c.Account.Name]" @onclick="() => MoveAsync(index, -1)"><Icon Name="left" Size="14" /></button>
+                        }
+                        @if (index < _cards.Count - 1)
+                        {
+                            <button type="button" class="acct-arrow acct-arrow-later" title="@T["Move {0} later", c.Account.Name]"
+                                    aria-label="@T["Move {0} later", c.Account.Name]" @onclick="() => MoveAsync(index, 1)"><Icon Name="right" Size="14" /></button>
+                        }
+                    </div>
                 }
             </div>
         </section>
@@ -121,6 +139,9 @@ else
 
 @code {
     private OverviewView? _view;
+    private List<AccountCard> _cards = [];
+    private int? _dragId;
+    private List<int> _orderBeforeDrag = [];
     private IReadOnlyList<UpcomingBooking> _upcoming = [];
     private AccountDialog _accountDialog = default!;
 
@@ -130,6 +151,7 @@ else
     {
         var userId = await UserIdAsync();
         _view = await Overview.GetAsync(userId, PageToken);
+        _cards = _view.Accounts.ToList();
         _upcoming = await Recurring.UpcomingAsync(userId, 31, 8, PageToken);
     }
 
@@ -156,6 +178,47 @@ else
         Ui.Toast.Success(T["Account {0} created.", created.Name]);
         await Ui.RefreshAccountsAsync();
         Nav.NavigateTo($"accounts/{created.Id}");
+    }
+
+    // While dragging, the cards make room as the pointer passes over them; the order is saved on release.
+    private void DragOver(int targetId)
+    {
+        if (_dragId is not { } dragId || dragId == targetId) return;
+        if (_orderBeforeDrag.Count == 0)
+            _orderBeforeDrag = _cards.Select(c => c.Account.Id).ToList();
+        var from = _cards.FindIndex(c => c.Account.Id == dragId);
+        var to = _cards.FindIndex(c => c.Account.Id == targetId);
+        if (from < 0 || to < 0) return;
+        var card = _cards[from];
+        _cards.RemoveAt(from);
+        _cards.Insert(to, card);
+    }
+
+    private async Task DragEndAsync()
+    {
+        _dragId = null;
+        var before = _orderBeforeDrag;
+        _orderBeforeDrag = [];
+        if (before.Count > 0 && !before.SequenceEqual(_cards.Select(c => c.Account.Id)))
+            await SaveOrderAsync();
+    }
+
+    private async Task MoveAsync(int index, int by)
+    {
+        var to = index + by;
+        if (to < 0 || to >= _cards.Count) return;
+        (_cards[index], _cards[to]) = (_cards[to], _cards[index]);
+        await SaveOrderAsync();
+    }
+
+    private async Task SaveOrderAsync()
+    {
+        var userId = await UserIdAsync();
+        var ids = _cards.Select(c => c.Account.Id).ToList();
+        if (await RunAsync(() => Accounts.ReorderAsync(userId, ids, PageToken)))
+            await Ui.RefreshAccountsAsync();
+        else
+            await LoadAsync();
     }
 
     private async Task DismissCaughtUpAsync()

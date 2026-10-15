@@ -50,6 +50,9 @@ namespace LaLira.Core.Data.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("OnlyCurrentYear")
+                        .HasColumnType("INTEGER");
+
                     b.Property<long>("OpeningBalance")
                         .HasColumnType("INTEGER");
 

@@ -4,7 +4,8 @@
 @inject IJSRuntime JS
 
 @* The account's balance over time, in the balance box on computers and tablets (hidden on phones).
-   One series: a 2px line with a light area, the latest value marked, start and end labelled below.
+   One series: a 2px line with a light area, the latest value marked, start and end labelled below,
+   faint grid lines at round amounts with their values in a column on the right.
    Hover shows a crosshair and the month's balance; that part runs in the browser (lalira.balanceChart)
    so moving the pointer doesn't go through the server. Numbers in the SVG are invariant-formatted. *@
 @if (Points.Count > 1)
@@ -22,13 +23,17 @@
     var zero = min < 0 && max > 0 ? Y(0) : (double?)null;
     var labels = data.Select(p => $"{L.MonthName(T.Language, p.Month.Month)} {p.Month.Year} · {Money.Format(p.Balance, T.Format, ShowDecimals)}").ToList();
     var ys = data.Select(p => Math.Round(Y(p.Balance), 3)).ToList();
+    // Grid lines at round amounts; those too close to the top or bottom edge are left out.
+    var grid = ChartScale.Ticks(lo, hi).Select(v => (Value: v, Y: Y(v))).Where(g => g.Y is > 4 and < 96).ToList();
+    var gridLabels = grid.Select(g => Money.Format(g.Value, T.Format, false)).ToList();
+    var gutter = gridLabels.Count == 0 ? 0 : gridLabels.Max(l => l.Length);
 
-    <div class="bchart">
+    <div class="bchart" style="@FormattableString.Invariant($"--bchart-gutter:{gutter}ch")">
         <div class="bchart-top">
             <div class="bchart-range" role="group" aria-label="@T["Period"]">
                 @foreach (var (months, label) in Ranges)
                 {
-                    <button type="button" aria-pressed="@(_months == months)" @onclick="() => _months = months">@T[label]</button>
+                    <button type="button" aria-pressed="@(_months == months ? "true" : "false")" @onclick="() => _months = months">@T[label]</button>
                 }
             </div>
         </div>
@@ -36,6 +41,11 @@
              aria-label="@T["Balance from {0} to {1}", labels[0], labels[^1]]"
              data-labels="@JsonSerializer.Serialize(labels)" data-ys="@JsonSerializer.Serialize(ys)">
             <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                @foreach (var g in grid.Where(g => g.Value != 0 || zero is null))
+                {
+                    var gy = g.Y.ToString("0.###", CultureInfo.InvariantCulture);
+                    <line class="bchart-grid" x1="0" x2="100" y1="@gy" y2="@gy" />
+                }
                 <path class="bchart-area" d="@area" />
                 @if (zero is { } z)
                 {
@@ -47,6 +57,12 @@
             <span class="bchart-cursor" hidden></span>
             <span class="bchart-dot" hidden></span>
             <span class="bchart-tip" hidden></span>
+        </div>
+        <div class="bchart-yaxis" aria-hidden="true">
+            @for (var i = 0; i < grid.Count; i++)
+            {
+                <span style="@FormattableString.Invariant($"top:{grid[i].Y:0.###}%")">@gridLabels[i]</span>
+            }
         </div>
         <div class="bchart-axis">
             <span>@labels[0]</span>

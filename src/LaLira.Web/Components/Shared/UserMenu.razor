@@ -3,12 +3,12 @@
 @implements IDisposable
 
 <div class="usermenu @(Up ? "usermenu-up" : "")">
-    <button type="button" class="usermenu-button" aria-expanded="@_open" @onclick="() => _open = !_open">
+    <button type="button" class="usermenu-button" aria-expanded="@(_open ? "true" : "false")" @onclick="() => _open = !_open">
         <span class="avatar">@Initial</span>
         @if (!Compact)
         {
             <span class="usermenu-name">@Name</span>
-            <Icon Name="chevrons" Size="16" />
+            <span class="usermenu-caret"><Icon Name="@(Up ? "up" : "down")" Size="16" /></span>
         }
     </button>
     @if (_open)

@@ -44,7 +44,7 @@ else
         </div>
         <div class="page-actions">
             <div class="row-menu">
-                <button type="button" class="btn btn-secondary btn-icon" aria-label="@T["More actions"]" aria-expanded="@_menu" @onclick="() => _menu = !_menu"><Icon Name="more" /></button>
+                <button type="button" class="btn btn-secondary btn-icon" aria-label="@T["More actions"]" aria-expanded="@(_menu ? "true" : "false")" @onclick="() => _menu = !_menu"><Icon Name="more" /></button>
                 @if (_menu)
                 {
                     <div class="menu-scrim" @onclick="() => _menu = false"></div>
@@ -95,6 +95,7 @@ else
     </section>
 
     var searching = _query.Trim().Length > 0;
+    var hideOlder = a.OnlyCurrentYear && _view.Years.Any(y => y.IsPast);
     var matches = searching ? _view.Years.SelectMany(y => y.Rows).Where(Matches).ToList() : [];
     <div class="ledger-tools">
         <label class="search-field">
@@ -118,10 +119,19 @@ else
         }
         else if (_view.Years.Any(y => y.IsPast))
         {
-            var allOpen = _view.Years.Where(y => y.IsPast).All(y => _openYears.Contains(y.Year));
-            <button type="button" class="btn btn-ghost btn-sm" @onclick="() => ToggleAll(!allOpen)">
-                <Icon Name="@(allOpen ? "fold" : "chevrons")" Size="15" /> @(allOpen ? T["Collapse all"] : T["Expand all"])
-            </button>
+            <div class="ledger-tools-end">
+                <label class="check check-small">
+                    <input type="checkbox" checked="@a.OnlyCurrentYear" @onchange="e => SetOnlyCurrentYearAsync(e.Value is true)" />
+                    <span>@T["Only current year"]</span>
+                </label>
+                @if (!a.OnlyCurrentYear)
+                {
+                    var allOpen = _view.Years.Where(y => y.IsPast).All(y => _openYears.Contains(y.Year));
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="() => ToggleAll(!allOpen)">
+                        <Icon Name="@(allOpen ? "fold" : "chevrons")" Size="15" /> @(allOpen ? T["Collapse all"] : T["Expand all"])
+                    </button>
+                }
+            </div>
         }
     </div>
 
@@ -140,12 +150,15 @@ else
                 // While searching, only years with a match show, opened, with just the matching rows.
                 if (searching && !year.Rows.Any(Matches))
                     continue;
+                // "Only current year" hides the older years; search still looks through all of them.
+                if (!searching && hideOlder && year.IsPast)
+                    continue;
                 var open = searching || !year.IsPast || _openYears.Contains(year.Year);
                 <tbody class="ledger-year @(year.IsPast ? "past" : "") @(open ? "open" : "")" id="@($"year-{year.Year}")" @key="year.Year">
                     @if (year.IsPast)
                     {
                         <tr class="year-row" @onclick="() => ToggleYear(year.Year)" tabindex="0" @onkeydown="e => OnYearKey(e, year.Year)"
-                            aria-expanded="@open" title="@(open ? T["Hide this year's positions"] : T["Show this year's positions"])">
+                            aria-expanded="@(open ? "true" : "false")" title="@(open ? T["Hide this year's positions"] : T["Show this year's positions"])">
                             <td class="col-date num">@Format.Date(year.YearEnd)</td>
                             <td>
                                 <span class="year-chevron"><Icon Name="@(open ? "down" : "right")" Size="14" /></span>
@@ -227,6 +240,18 @@ else
                             }
                         }
                     }
+                </tbody>
+            }
+            @if (!searching && hideOlder)
+            {
+                var hidden = _view.Years.Count(y => y.IsPast);
+                <tbody>
+                    <tr class="ledger-hidden">
+                        <td colspan="4">
+                            @T.Plural(hidden, "{0} older year hidden.", "{0} older years hidden.")
+                            <button type="button" class="link-button" @onclick="() => SetOnlyCurrentYearAsync(false)">@T["Show all years"]</button>
+                        </td>
+                    </tr>
                 </tbody>
             }
             @if (searching && matches.Count == 0)
@@ -313,6 +338,16 @@ else
         if (open && _view is not null)
             foreach (var y in _view.Years.Where(y => y.IsPast))
                 _openYears.Add(y.Year);
+    }
+
+    private async Task SetOnlyCurrentYearAsync(bool on)
+    {
+        var userId = await UserIdAsync();
+        if (await RunAsync(() => Accounts.SetOnlyCurrentYearAsync(userId, Id, on, PageToken)))
+        {
+            _openYears.Clear();
+            await LoadAsync();
+        }
     }
 
     private void OnSearchKey(KeyboardEventArgs e)

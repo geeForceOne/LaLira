@@ -17,7 +17,7 @@
                     <div class="icon-pick" role="radiogroup" aria-label="@T["Icon"]">
                         @foreach (var (key, label) in AccountIcons.All)
                         {
-                            <button type="button" role="radio" aria-checked="@(_icon == key)" class="@(_icon == key ? "on" : "")"
+                            <button type="button" role="radio" aria-checked="@(_icon == key ? "true" : "false")" class="@(_icon == key ? "on" : "")"
                                     title="@T[label]" aria-label="@T[label]" @onclick="() => _icon = key"><Icon Name="@key" Size="20" /></button>
                         }
                     </div>

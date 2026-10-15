@@ -52,4 +52,19 @@ public class IbanAndChartTests
     [Fact]
     public void ChartRangeLabelsAreTranslated() =>
         Assert.All(new[] { "1 year", "5 years", "All" }, k => Assert.True(L.GermanDictionary.ContainsKey(k), k));
+
+    [Theory]
+    [InlineData(0, 1_000_000, new long[] { 0, 500_000, 1_000_000 })]          // 0 to 10'000: steps of 5'000
+    [InlineData(-120_000, 380_000, new long[] { 0, 200_000 })]                  // steps of 2'000 across zero
+    [InlineData(1_000, 1_050, new long[] { 1_000 })]                            // never below one whole unit
+    [InlineData(1_234_567, 9_876_543, new long[] { 2_500_000, 5_000_000, 7_500_000 })]
+    public void GridLinesAtRoundAmounts(double low, double high, long[] expected) =>
+        Assert.Equal(expected, ChartScale.Ticks(low, high));
+
+    [Fact]
+    public void GridLinesNeverMoreThanFour()
+    {
+        foreach (var high in new[] { 150.0, 999.0, 12_345.0, 7_777_777.0, 98_765_432_100.0 })
+            Assert.InRange(ChartScale.Ticks(-high / 3, high).Count, 1, 4);
+    }
 }

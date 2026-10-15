@@ -78,7 +78,7 @@ else
                 <div class="segmented segmented-wide" role="radiogroup" aria-label="@T["Theme"]">
                     @foreach (var (theme, label) in new[] { (Theme.Dark, T["Dark"]), (Theme.Light, T["Light"]), (Theme.System, T["System"]) })
                     {
-                        <button type="button" role="radio" aria-checked="@(_s.Theme == theme)" class="@(_s.Theme == theme ? "on" : "")" @onclick="() => SetThemeAsync(theme)">@label</button>
+                        <button type="button" role="radio" aria-checked="@(_s.Theme == theme ? "true" : "false")" class="@(_s.Theme == theme ? "on" : "")" @onclick="() => SetThemeAsync(theme)">@label</button>
                     }
                 </div>
             </div>

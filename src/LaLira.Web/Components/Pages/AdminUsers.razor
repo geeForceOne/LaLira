@@ -104,7 +104,7 @@
                         <td data-label="@T["Reports"]" class="num">@usage.Reports</td>
                         <td class="users-actions">
                             <div class="row-menu">
-                                <button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="@T["Actions for {0}", u.ShownName]" aria-expanded="@(_menuFor == u.Id)"
+                                <button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="@T["Actions for {0}", u.ShownName]" aria-expanded="@(_menuFor == u.Id ? "true" : "false")"
                                         @onclick="() => _menuFor = _menuFor == u.Id ? null : u.Id"><Icon Name="more" Size="16" /></button>
                                 @if (_menuFor == u.Id)
                                 {
