@@ -10,7 +10,10 @@ namespace LaLira.Core.Services;
 public sealed record AccountCard(
     AccountInfo Account, long BalanceToday, long MonthIn, long MonthOut, int UpcomingCount, IReadOnlyList<long> MonthEndBalances);
 
-public sealed record CurrencyTotal(string Currency, long Balance, long MonthIn, long MonthOut);
+// MonthEnds: the sum of the currency's accounts at the end of every month from the earliest
+// opening to today, oldest first (an account counts from its opening month).
+public sealed record CurrencyTotal(string Currency, long Balance, long MonthIn, long MonthOut,
+    IReadOnlyList<(DateOnly Month, long Balance)> MonthEnds);
 
 public sealed record OverviewView(DateOnly Today, IReadOnlyList<AccountCard> Accounts, IReadOnlyList<CurrencyTotal> Totals, int CaughtUp);
 
@@ -53,13 +56,25 @@ public sealed class OverviewService(IDbContextFactory<AppDbContext> dbFactory, A
         }).ToList();
 
         var totals = cards.GroupBy(c => c.Account.Currency)
-            .Select(g => new CurrencyTotal(g.Key, g.Sum(c => c.BalanceToday), g.Sum(c => c.MonthIn), g.Sum(c => c.MonthOut)))
+            .Select(g => new CurrencyTotal(g.Key, g.Sum(c => c.BalanceToday), g.Sum(c => c.MonthIn), g.Sum(c => c.MonthOut),
+                SumMonthEnds(g.Select(c => LedgerBuilder.MonthEnds(c.Account.OpeningBalance, c.Account.OpeningDate,
+                    byAccount[c.Account.Id].Select(p => new LedgerPosition(0, p.Date, p.Amount, "", null)), today)))))
             .OrderByDescending(t => cards.Count(c => c.Account.Currency == t.Currency)).ThenBy(t => t.Currency)
             .ToList();
 
         var caughtUp = await db.Notices.AsNoTracking().Where(n => n.UserId == userId && n.Kind == NoticeKind.CaughtUp)
             .SumAsync(n => n.Count, ct);
         return new OverviewView(today, cards, totals, caughtUp);
+    }
+
+    // Adds month-end series that start in different months; before its first month a series counts 0.
+    public static IReadOnlyList<(DateOnly Month, long Balance)> SumMonthEnds(IEnumerable<IReadOnlyList<(DateOnly Month, long Balance)>> series)
+    {
+        var sums = new SortedDictionary<DateOnly, long>();
+        foreach (var s in series)
+            foreach (var (month, balance) in s)
+                sums[month] = sums.GetValueOrDefault(month) + balance;
+        return sums.Select(kv => (kv.Key, kv.Value)).ToList();
     }
 
     public async Task DismissCaughtUpAsync(string userId, CancellationToken ct = default)

@@ -1,5 +1,9 @@
-@* A small balance-over-time line with an area under it, and a faint zero line when the balance
-   crosses zero. Values are month-end balances, oldest first. *@
+@using System.Globalization
+@inject Texts T
+
+@* A small balance-over-time line with an area under it, faint grid lines at round amounts with
+   their values small on the right, and a dashed zero line when the balance crosses zero.
+   Values are month-end balances, oldest first. Numbers in the SVG are invariant-formatted. *@
 @if (Values.Count > 1)
 {
     // Scaled to the values' own range, so a change shows even on a large balance.
@@ -12,18 +16,39 @@
     var bottom = Height - Pad;
     var area = FormattableString.Invariant($"M{X(0):0.##},{bottom} L") + line.Replace(" ", " L") +
                FormattableString.Invariant($" L{X(Values.Count - 1):0.##},{bottom} Z");
-    <svg class="sparkline" viewBox="0 0 @Width @Height" preserveAspectRatio="none" role="img" aria-label="@Label">
-        <path d="@area" class="spark-area" />
-        @if (min < 0 && max > 0)
-        {
-            <line x1="0" x2="@Width" y1="@Y(0).ToString(System.Globalization.CultureInfo.InvariantCulture)" y2="@Y(0).ToString(System.Globalization.CultureInfo.InvariantCulture)" class="spark-zero" />
-        }
-        <polyline points="@line" class="spark-line" vector-effect="non-scaling-stroke" />
-    </svg>
+    var zero = min < 0 && max > 0;
+    // Grid lines at round amounts, at least a label's height apart so the values don't touch.
+    var grid = new List<long>();
+    foreach (var v in ChartScale.Ticks(min, max, 3).Where(v => v != 0 || !zero))
+        if (grid.Count == 0 || Math.Abs(Y(v) - Y(grid[^1])) >= MinGridGap)
+            grid.Add(v);
+    var gridLabels = grid.Select(v => Money.Format(v, T.Format, false)).ToList();
+    var gutter = gridLabels.Count == 0 ? 0 : gridLabels.Max(l => l.Length);
+    <div class="spark" style="@FormattableString.Invariant($"--spark-gutter:{gutter}ch")">
+        <svg class="sparkline" viewBox="0 0 @Width @Height" preserveAspectRatio="none" role="img" aria-label="@Label">
+            @foreach (var v in grid)
+            {
+                var gy = Y(v).ToString("0.##", CultureInfo.InvariantCulture);
+                <line x1="0" x2="@Width" y1="@gy" y2="@gy" class="spark-grid" />
+            }
+            <path d="@area" class="spark-area" />
+            @if (zero)
+            {
+                <line x1="0" x2="@Width" y1="@Y(0).ToString(CultureInfo.InvariantCulture)" y2="@Y(0).ToString(CultureInfo.InvariantCulture)" class="spark-zero" />
+            }
+            <polyline points="@line" class="spark-line" vector-effect="non-scaling-stroke" />
+        </svg>
+        <div class="spark-yaxis" aria-hidden="true">
+            @for (var i = 0; i < grid.Count; i++)
+            {
+                <span style="@FormattableString.Invariant($"top:{Y(grid[i]) * 100 / Height:0.##}%")">@gridLabels[i]</span>
+            }
+        </div>
+    </div>
 }
 
 @code {
-    private const int Width = 200, Height = 44, Pad = 3;
+    private const int Width = 200, Height = 44, Pad = 3, MinGridGap = 15;
 
     [Parameter, EditorRequired] public IReadOnlyList<long> Values { get; set; } = [];
     [Parameter] public string? Label { get; set; }

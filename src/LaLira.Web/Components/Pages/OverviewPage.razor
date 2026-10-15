@@ -47,13 +47,16 @@ else
             @foreach (var t in _view.Totals)
             {
                 var decimals = _view.Accounts.Where(a => a.Account.Currency == t.Currency).All(a => a.Account.ShowDecimals);
-                <div class="total">
-                    <div class="total-label">@T["Total"] <span class="code">@t.Currency</span></div>
-                    <div class="total-value num @(t.Balance < 0 ? "neg" : "")">@Format.Money(t.Balance, decimals)</div>
-                    <div class="total-flow">
-                        <span title="@T["Money in this month"]"><span class="flow-label">@T["In"]</span> <span class="num">@Format.Money(t.MonthIn, decimals)</span></span>
-                        <span title="@T["Money out this month"]"><span class="flow-label">@T["Out"]</span> <span class="num">@Format.Money(t.MonthOut, decimals)</span></span>
+                <div class="total @(t.MonthEnds.Count > 1 ? "with-chart" : "")">
+                    <div class="total-figures">
+                        <div class="total-label">@T["Total"] <span class="code">@t.Currency</span></div>
+                        <div class="total-value num @(t.Balance < 0 ? "neg" : "")">@Format.Money(t.Balance, decimals)</div>
+                        <div class="total-flow">
+                            <span title="@T["Money in this month"]"><span class="flow-label">@T["In"]</span> <span class="num">@Format.Money(t.MonthIn, decimals)</span></span>
+                            <span title="@T["Money out this month"]"><span class="flow-label">@T["Out"]</span> <span class="num">@Format.Money(t.MonthOut, decimals)</span></span>
+                        </div>
                     </div>
+                    <BalanceChart Points="t.MonthEnds" ShowDecimals="decimals" />
                 </div>
             }
         </section>

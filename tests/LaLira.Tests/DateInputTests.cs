@@ -19,6 +19,16 @@ public class DateInputTests
     [InlineData("en-US", "10/14/2026", 2026, 10, 14)]
     [InlineData("en-US", "5/1", 2026, 5, 1)]
     [InlineData("en-GB", "14/10/2026", 2026, 10, 14)]
+    [InlineData("de-CH", "29012016", 2016, 1, 29)]
+    [InlineData("de-CH", "290116", 2016, 1, 29)]
+    [InlineData("de-CH", "2901", 2026, 1, 29)]
+    [InlineData("de-CH", "20160129", 2016, 1, 29)]
+    [InlineData("en-US", "01292016", 2016, 1, 29)]
+    [InlineData("en-US", "0129", 2026, 1, 29)]
+    [InlineData("sv-SE", "20160129", 2016, 1, 29)]
+    [InlineData("sv-SE", "160129", 2016, 1, 29)]
+    [InlineData("sv-SE", "0129", 2026, 1, 29)]
+    [InlineData("sv-SE", "1.29", 2026, 1, 29)]
     public void Parses(string culture, string text, int y, int m, int d)
     {
         Assert.True(DateInput.TryParse(text, CultureInfo.GetCultureInfo(culture), Today, out var date), text);
@@ -28,6 +38,9 @@ public class DateInputTests
     [Theory]
     [InlineData("")]
     [InlineData("14")]
+    [InlineData("29132016")]
+    [InlineData("291")]
+    [InlineData("2901201")]
     [InlineData("31.2.2026")]
     [InlineData("14.13.2026")]
     [InlineData("1.2.3.4")]

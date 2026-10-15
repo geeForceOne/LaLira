@@ -592,6 +592,10 @@ td.num, th.num, .num.right { text-align: right; }
 }
 .total-value .code { font-size: var(--t-sm); font-weight: 500; letter-spacing: 0.04em; vertical-align: 0.5em; }
 .total-flow { display: flex; gap: 18px; margin-top: 8px; font-size: var(--t-sm); color: var(--ink-soft); flex-wrap: wrap; }
+/* The figures on the left, the chart next to them; the chart moves below when the box is narrow. */
+.total.with-chart { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: stretch; }
+.total.with-chart .total-figures { flex: 0 0 auto; align-self: center; }
+.total.with-chart .bchart { flex: 1 1 320px; }
 .flow-label { color: var(--pencil); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; margin-right: 2px; }
 
 .acct-grid {
@@ -683,7 +687,12 @@ td.num, th.num, .num.right { text-align: right; }
 .acct-flow { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: var(--t-sm); color: var(--ink-soft); }
 .acct-flow .tag { margin-left: auto; }
 
+.spark { display: grid; grid-template-columns: minmax(0, 1fr) var(--spark-gutter, 0); gap: 8px; }
 .sparkline { display: block; width: 100%; height: 44px; overflow: visible; }
+.spark-grid { stroke: var(--rule); stroke-width: 1; vector-effect: non-scaling-stroke; }
+:root[data-theme="light"] .spark-grid { stroke: var(--rule-strong); }
+.spark-yaxis { position: relative; color: var(--pencil); font-size: 10px; font-variant-numeric: tabular-nums; }
+.spark-yaxis span { position: absolute; right: 0; transform: translateY(-50%); line-height: 1; white-space: nowrap; }
 .spark-area { fill: var(--accent-soft); stroke: none; }
 .spark-line { fill: none; stroke: var(--accent); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
 .spark-zero { stroke: var(--rule-strong); stroke-dasharray: 3 3; stroke-width: 1; vector-effect: non-scaling-stroke; }

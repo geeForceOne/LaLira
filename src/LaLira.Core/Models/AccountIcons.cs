@@ -17,6 +17,7 @@ public static class AccountIcons
         ("car", "Car"),
         ("chart", "Investments"),
         ("umbrella", "Pension and insurance"),
+        ("tax", "Tax"),
         ("briefcase", "Work"),
         ("cart", "Shopping"),
         ("plane", "Travel"),

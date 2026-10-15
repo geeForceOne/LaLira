@@ -67,4 +67,13 @@ public class IbanAndChartTests
         foreach (var high in new[] { 150.0, 999.0, 12_345.0, 7_777_777.0, 98_765_432_100.0 })
             Assert.InRange(ChartScale.Ticks(-high / 3, high).Count, 1, 4);
     }
+
+    [Fact]
+    public void CurrencyTotalAddsAccountsFromTheirOpeningMonth()
+    {
+        DateOnly M(int month) => new(2026, month, 1);
+        var older = new List<(DateOnly, long)> { (M(1), 100), (M(2), 150), (M(3), 120) };
+        var newer = new List<(DateOnly, long)> { (M(2), 50), (M(3), 80) };
+        Assert.Equal([(M(1), 100L), (M(2), 200L), (M(3), 200L)], OverviewService.SumMonthEnds([older, newer]));
+    }
 }

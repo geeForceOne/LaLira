@@ -170,7 +170,7 @@
         _language = existing?.Language ?? language;
         _frequency = existing?.Frequency ?? Frequency.Monthly;
         _interval = existing?.Interval ?? 1;
-        _day = existing?.DayOfMonth ?? Math.Min(today.Day, 28);
+        _day = existing?.DayOfMonth ?? 1;
         _start = existing?.StartDate ?? today;
         _end = existing?.EndDate;
         _active = existing?.IsActive ?? true;
