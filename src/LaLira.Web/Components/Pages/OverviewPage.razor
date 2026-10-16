@@ -4,6 +4,7 @@
 @inject AccountService Accounts
 @inject RecurringService Recurring
 @inject SettingsService Settings
+@inject PortfolioService Portfolios
 
 <PageTitle>@T["Overview"] · @AppInfo.Name</PageTitle>
 
@@ -12,9 +13,14 @@
         <p class="eyebrow">@(_view is null ? "" : Format.DateWithDay(_view.Today))</p>
         <h1>@T["Overview"]</h1>
     </div>
-    <div class="page-actions">
-        <button type="button" class="btn btn-primary" @onclick="NewAccountAsync"><Icon Name="plus" Size="16" /> @T["New account"]</button>
-    </div>
+    @* Without accounts the empty state has the button; then "New account" and "New portfolio"
+       sit in their section heads. *@
+    @if (_view is not null && _view.Accounts.Count == 0 && _portfolios.Count == 0)
+    {
+        <div class="page-actions">
+            <button type="button" class="btn btn-ghost btn-sm" @onclick="NewPortfolioAsync"><Icon Name="plus" Size="15" /> @T["New portfolio"]</button>
+        </div>
+    }
 </div>
 
 @if (_view is null)
@@ -40,6 +46,10 @@ else
             <p>@T["An account has a name, a currency and a starting balance. Then add money in and out, or set up recurring positions that book themselves."]</p>
             <button type="button" class="btn btn-primary" @onclick="NewAccountAsync"><Icon Name="plus" Size="16" /> @T["New account"]</button>
         </div>
+        @if (_portfolios.Count > 0)
+        {
+            <PortfolioCards Cards="_portfolios" OnNew="NewPortfolioAsync" />
+        }
     }
     else
     {
@@ -64,7 +74,14 @@ else
         <section class="section">
             <div class="section-head">
                 <h2>@T["Accounts"]<span class="count">@_view.Accounts.Count</span></h2>
-                <span class="muted small">@T["In and out: this month so far"]<span class="drag-hint"> · @T["drag the cards to sort them"]</span></span>
+                <div class="section-tools">
+                    <span class="muted small">@T["In and out: this month so far"]<span class="drag-hint"> · @T["drag the cards to sort them"]</span></span>
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="NewAccountAsync"><Icon Name="plus" Size="15" /> @T["New account"]</button>
+                    @if (_portfolios.Count == 0)
+                    {
+                        <button type="button" class="btn btn-ghost btn-sm" @onclick="NewPortfolioAsync"><Icon Name="plus" Size="15" /> @T["New portfolio"]</button>
+                    }
+                </div>
             </div>
             <div class="acct-grid">
                 @for (var i = 0; i < _cards.Count; i++)
@@ -107,6 +124,11 @@ else
             </div>
         </section>
 
+        @if (_portfolios.Count > 0)
+        {
+            <PortfolioCards Cards="_portfolios" OnNew="NewPortfolioAsync" />
+        }
+
         <section class="section">
             <div class="section-head">
                 <h2>@T["Coming up"]</h2>
@@ -146,6 +168,7 @@ else
     private int? _dragId;
     private List<int> _orderBeforeDrag = [];
     private IReadOnlyList<UpcomingBooking> _upcoming = [];
+    private IReadOnlyList<PortfolioCard> _portfolios = [];
     private AccountDialog _accountDialog = default!;
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
@@ -156,6 +179,20 @@ else
         _view = await Overview.GetAsync(userId, PageToken);
         _cards = _view.Accounts.ToList();
         _upcoming = await Recurring.UpcomingAsync(userId, 31, 8, PageToken);
+        _portfolios = await Portfolios.CardsAsync(userId, PageToken);
+    }
+
+    // A name is all a portfolio needs; the purchases are added on its page.
+    private async Task NewPortfolioAsync()
+    {
+        var name = await Ui.Prompt.AskAsync(T["New portfolio"], T["Name"], "", T["Create portfolio"], hint: T["For example “ETFs and shares”. Purchases are added on its page."]);
+        if (name is null) return;
+        var userId = await UserIdAsync();
+        PortfolioInfo? created = null;
+        if (!await RunAsync(async () => created = await Portfolios.CreateAsync(userId, name, PageToken)) || created is null)
+            return;
+        await Ui.RefreshAccountsAsync();
+        Nav.NavigateTo($"portfolios/{created.Id}");
     }
 
     private async Task NewAccountAsync()

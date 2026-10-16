@@ -816,6 +816,77 @@ td.num, th.num, .num.right { text-align: right; }
 .entry .field-hint .icon { color: var(--accent); }
 .ledger tr.editing td { padding: 10px 12px; background: var(--accent-soft); border-bottom: 1px solid var(--rule-strong); }
 
+/* ---------- Portfolios ---------- */
+
+/* A purchase in two rows: what it is, then when, how many and at what price. */
+.holding-entry .entry-fields, .sale-entry .entry-fields { align-items: flex-end; flex-wrap: wrap; }
+.holding-name { flex: 1 1 240px; min-width: 0; }
+.holding-isin { flex: 0 0 172px; max-width: none; }
+/* The name field with its search button inside, and the matches below it. */
+.holding-search { position: relative; display: flex; align-items: center; }
+.holding-search > .input { flex: 1; min-width: 0; }
+.holding-search > .input:has(+ .btn) { padding-right: 38px; }
+.holding-search > .btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); }
+.search-results {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    max-height: 340px;
+    overflow-y: auto;
+    padding: 4px;
+    background: var(--sheet-3);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--r-md);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+.search-match {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: none;
+    color: var(--ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.search-match:hover, .search-match:focus-visible { background: var(--accent-soft); outline: none; }
+.search-match-name { font-weight: 500; }
+.search-match-meta { color: var(--pencil); font-size: var(--t-xs); font-family: var(--font-code); }
+.search-match-meta strong { color: var(--ink-soft); font-weight: 500; }
+.search-empty { padding: 8px 10px; color: var(--pencil); font-size: var(--t-sm); }
+.search-close { align-self: flex-end; margin-top: 2px; padding: 4px 8px; border: 0; background: none; color: var(--pencil); font: inherit; font-size: var(--t-xs); cursor: pointer; }
+.search-close:hover { color: var(--ink); }
+.holding-isin::placeholder { text-transform: none; }
+.holding-valor { flex: 0 0 130px; }
+.holding-ticker { flex: 0 0 110px; }
+.ticker { margin-left: 8px; padding: 0 5px; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); color: var(--ink-soft); font-family: var(--font-code); font-size: var(--t-xs); letter-spacing: 0.03em; vertical-align: 1px; white-space: nowrap; }
+.holding-currency { flex: 0 0 96px; }
+.entry-label { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.entry-label > span:first-child { color: var(--pencil); font-size: var(--t-xs); }
+.holding-number { flex: 0 0 140px; }
+.holding-total { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; align-items: flex-end; padding-bottom: 8px; white-space: nowrap; }
+.holding-total .total-label { letter-spacing: 0.06em; }
+.holding-entry .entry-actions, .sale-entry .entry-actions { margin-bottom: 1px; }
+.sale-title { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.holding-ids { display: block; color: var(--pencil); font-size: var(--t-xs); font-family: var(--font-code); letter-spacing: 0.02em; }
+td.num .holding-ids { font-family: inherit; }
+.holdings td.num, .holdings th { white-space: nowrap; }
+.holdings td:first-child { min-width: 180px; }
+/* The buy price is cost ÷ quantity; it goes first when the table gets narrow. */
+@media (max-width: 1400px) { .hide-narrow { display: none; } }
+.holdings .col-date { width: 110px; }
+.portfolio-line { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+.portfolio-totals .total-flow + .total-flow { margin-top: 4px; }
+/* A section head's hint and small buttons, on the right. */
+.section-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 12px; }
+
 .ledger-section { margin-top: 12px; }
 .ledger-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
 .search-field { position: relative; display: flex; align-items: center; flex: 0 1 360px; min-width: 200px; }
@@ -1133,6 +1204,7 @@ td.num, th.num, .num.right { text-align: right; }
     .usermenu-button { justify-content: center; padding: 6px; }
     .side-foot { width: 100%; }
     .rule-grid { grid-template-columns: 1fr; }
+    .hide-tablet { display: none; }
     .balance-strip.with-chart { grid-template-columns: max-content minmax(0, 1fr); }
     .balance-strip.with-chart .balance-sides { grid-column: 1 / -1; grid-template-columns: repeat(4, max-content); }
     .setting { grid-template-columns: 1fr; gap: 12px; }
@@ -1215,6 +1287,17 @@ td.num, th.num, .num.right { text-align: right; }
     .entry-actions { flex: 1 1 100%; }
     .entry-actions .btn-primary { flex: 1; }
     .upcoming-table td:first-child { width: auto; }
+
+    /* Portfolios: name, quantity, value and gain; the purchase date goes under the name. */
+    .hide-phone { display: none; }
+    .holdings .col-date { display: none; }
+    .holdings th, .holdings td { padding-left: 8px; padding-right: 8px; }
+    .holdings td .code, .holding-isin-line { display: none; }
+    .holding-name { flex: 1 1 100%; }
+    .holding-isin, .holding-valor, .holding-ticker { flex: 1 1 110px; }
+    .holding-currency { flex: 0 0 88px; }
+    .holding-number, .holding-entry .entry-date, .sale-entry .entry-date { flex: 1 1 130px; }
+    .holding-total { align-items: flex-start; flex: 1 1 100%; padding-bottom: 0; }
 
     /* Tables become stacked label/value rows. */
     .users-table thead, .rules-table thead { display: none; }

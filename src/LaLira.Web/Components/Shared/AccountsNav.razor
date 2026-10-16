@@ -1,8 +1,9 @@
 @using System.Security.Claims
 @inject OverviewService Overview
+@inject PortfolioService Portfolios
 @inject Texts T
 
-@* The sidebar's account list with today's balances. *@
+@* The sidebar's account list with today's balances, then the portfolios. *@
 @if (_cards.Count > 0)
 {
     <div class="side-label">@T["Accounts"]</div>
@@ -17,11 +18,31 @@
         }
     </nav>
 }
+@if (_portfolios.Count > 0)
+{
+    <div class="side-label">@T["Portfolios"]</div>
+    <nav class="side-accounts" aria-label="@T["Portfolios"]">
+        @foreach (var p in _portfolios)
+        {
+            // The value shows when the portfolio has one currency and prices for what it holds.
+            var only = p.Totals.Count == 1 && p.Totals[0] is { HeldCount: > 0, WithoutPrice: 0 } t ? t : null;
+            <NavLink href="@($"portfolios/{p.Portfolio.Id}")" ActiveClass="active" title="@p.Portfolio.Name">
+                <Icon Name="chart" Size="16" />
+                <span class="side-account-name">@p.Portfolio.Name</span>
+                @if (only is not null)
+                {
+                    <span class="side-account-balance">@Format.Money(only.Value, false)</span>
+                }
+            </NavLink>
+        }
+    </nav>
+}
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private IReadOnlyList<AccountCard> _cards = [];
+    private IReadOnlyList<PortfolioCard> _portfolios = [];
     private string? _userId;
 
     protected override async Task OnInitializedAsync()
@@ -39,7 +60,8 @@
 
     private async Task LoadAsync()
     {
-        if (_userId is not null)
-            _cards = (await Overview.GetAsync(_userId)).Accounts;
+        if (_userId is null) return;
+        _cards = (await Overview.GetAsync(_userId)).Accounts;
+        _portfolios = await Portfolios.CardsAsync(_userId);
     }
 }

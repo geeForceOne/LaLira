@@ -2,6 +2,7 @@ using LaLira.Core.Backup;
 using LaLira.Core.Data;
 using LaLira.Core.Email;
 using LaLira.Core.Localization;
+using LaLira.Core.Prices;
 using LaLira.Core.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,6 +35,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<UserActivityService>();
         services.AddSingleton<AdminStatisticsService>();
         services.AddSingleton<WhatsNewService>();
+        services.AddSingleton<PortfolioService>();
+        services.AddSingleton<IPriceSource>(new EodhdPriceSource(new HttpClient { Timeout = TimeSpan.FromSeconds(20) }));
+        services.AddSingleton<PriceService>();
         return services;
     }
 }

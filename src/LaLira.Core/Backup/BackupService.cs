@@ -309,7 +309,8 @@ public sealed class BackupService(
         }
     }
 
-    // Every account of every user as csv/<user's email>/<account>.csv, in the owner's language and
+    // Every account of every user as csv/<user's email>/<account>.csv (portfolios under
+    // portfolios/), in the owner's language and
     // region format, the same as the account's own CSV export. A CSV that can't be written is
     // logged and left out; it never stops the backup.
     private async Task AddCsvFilesAsync(ZipArchive zip, CancellationToken ct)
@@ -319,10 +320,12 @@ public sealed class BackupService(
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var users = await db.Users.AsNoTracking().Select(u => new { u.Id, u.Email, u.UserName }).ToListAsync(ct);
             var accounts = await db.Accounts.AsNoTracking().Select(a => new { a.Id, a.UserId, a.Name }).ToListAsync(ct);
+            var portfolios = await db.Portfolios.AsNoTracking().Select(p => new { p.Id, p.UserId, p.Name }).ToListAsync(ct);
             foreach (var user in users)
             {
                 var mine = accounts.Where(a => a.UserId == user.Id).ToList();
-                if (mine.Count == 0) continue;
+                var myPortfolios = portfolios.Where(p => p.UserId == user.Id).ToList();
+                if (mine.Count == 0 && myPortfolios.Count == 0) continue;
                 var s = await settings.GetAsync(user.Id, ct);
                 var t = new Texts(s.Language, Regions.Culture(s.RegionFormat));
                 var folder = "csv/" + SafeName(user.Email ?? user.UserName ?? user.Id) + "/";
@@ -331,6 +334,15 @@ public sealed class BackupService(
                     var (_, content) = await csv.ExportAsync(user.Id, a.Id, t, ct);
                     var duplicate = mine.Count(x => SafeName(x.Name) == SafeName(a.Name)) > 1;
                     var entry = zip.CreateEntry(folder + SafeName(a.Name) + (duplicate ? $"-{a.Id}" : "") + ".csv", CompressionLevel.Optimal);
+                    await using var stream = entry.Open();
+                    await stream.WriteAsync(content, ct);
+                }
+                // Portfolios in their own folder, so their names can't clash with accounts.
+                foreach (var p in myPortfolios)
+                {
+                    var (_, content) = await csv.ExportPortfolioAsync(user.Id, p.Id, t, ct);
+                    var duplicate = myPortfolios.Count(x => SafeName(x.Name) == SafeName(p.Name)) > 1;
+                    var entry = zip.CreateEntry(folder + "portfolios/" + SafeName(p.Name) + (duplicate ? $"-{p.Id}" : "") + ".csv", CompressionLevel.Optimal);
                     await using var stream = entry.Open();
                     await stream.WriteAsync(content, ct);
                 }

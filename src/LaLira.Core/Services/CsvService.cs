@@ -21,7 +21,7 @@ public enum CsvRowStatus { Ok, Duplicate, Error }
 public sealed record CsvPreviewRow(int Line, DateOnly? Date, string Description, long? Amount, CsvRowStatus Status, string? Error, string? Note = null);
 
 // CSV import (with a preview before anything is booked) and export of an account's positions.
-public sealed class CsvService(IDbContextFactory<AppDbContext> dbFactory, AccountService accounts, LedgerService ledger)
+public sealed class CsvService(IDbContextFactory<AppDbContext> dbFactory, AccountService accounts, LedgerService ledger, PortfolioService portfolios)
 {
     public const int MaxRows = 20_000;
 
@@ -189,6 +189,38 @@ public sealed class CsvService(IDbContextFactory<AppDbContext> dbFactory, Accoun
         }
         var safeName = new string(view.Account.Name.Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray()).Trim('-');
         var name = $"{(safeName.Length == 0 ? "account" : safeName)}-{view.Today:yyyy-MM-dd}.csv";
+        return (name, Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray());
+    }
+
+    // A portfolio's rows, held first, then sold, in the same format as an account's export.
+    // Quantities and prices keep all their decimals; totals are in the currency.
+    public async Task<(string FileName, byte[] Content)> ExportPortfolioAsync(string userId, int portfolioId, Texts t, CancellationToken ct = default)
+    {
+        var view = await portfolios.GetAsync(userId, portfolioId, ct);
+        var sb = new StringBuilder();
+        sb.Append(string.Join(';', t["Name"], t["Ticker"], "ISIN", t["Valor"], t["Currency"], t["Buy date"], t["Quantity"], t["Buy price"], t["Cost"],
+            t["Sale date"], t["Sale price"], t["Proceeds"], t["Price"], t["Price date"], t["Value"], t["Gain/loss"])).Append("\r\n");
+        foreach (var h in view.Holdings)
+        {
+            sb.Append(Quote(h.Name)).Append(';')
+              .Append(h.ShownTicker is { } ticker ? Quote(ticker) : "").Append(';')
+              .Append(h.Isin).Append(';')
+              .Append(h.Valor ?? "").Append(';')
+              .Append(h.Currency).Append(';')
+              .Append(h.BuyDate.ToString("d", t.Format)).Append(';')
+              .Append(Decimals.FormatForInput(h.Quantity, t.Format)).Append(';')
+              .Append(Decimals.FormatForInput(h.BuyPrice, t.Format)).Append(';')
+              .Append(Money.FormatForInput(h.BuyTotal, t.Format)).Append(';')
+              .Append(h.SellDate?.ToString("d", t.Format) ?? "").Append(';')
+              .Append(h.SellPrice is { } sp ? Decimals.FormatForInput(sp, t.Format) : "").Append(';')
+              .Append(h.SellTotal is { } st ? Money.FormatForInput(st, t.Format) : "").Append(';')
+              .Append(h.Price is { } p ? Decimals.FormatForInput(p, t.Format) : "").Append(';')
+              .Append(h.PriceDate?.ToString("d", t.Format) ?? "").Append(';')
+              .Append(h.Value is { } v ? Money.FormatForInput(v, t.Format) : "").Append(';')
+              .Append(h.Gain is { } g ? Money.FormatForInput(g, t.Format) : "").Append("\r\n");
+        }
+        var safeName = new string(view.Portfolio.Name.Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray()).Trim('-');
+        var name = $"{(safeName.Length == 0 ? "portfolio" : safeName)}-{view.Today:yyyy-MM-dd}.csv";
         return (name, Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray());
     }
 

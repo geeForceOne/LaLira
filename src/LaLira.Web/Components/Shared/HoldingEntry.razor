@@ -1,0 +1,307 @@
+@using LaLira.Core.Prices
+@inject Texts T
+
+@* One purchase in one form: what (name, ISIN, Valor, currency), then when, how many and at what
+   price, with the total worked out as you type. Used for adding (above the list, stays open for
+   the next one) and for changing a row in place, where a sold row also has its sale. With a
+   price service, a name ("ubs") or ISIN in the name field and Enter search for the security;
+   picking a match fills in name, ISIN and currency. *@
+<form class="entry holding-entry @(Existing is null ? "entry-new" : "entry-edit")" @onsubmit="SubmitAsync" @onsubmit:preventDefault="true" @onkeydown="OnKeyDown">
+    <div class="entry-fields">
+        <div class="holding-name holding-search">
+            <input class="input" @bind="_name" @bind:event="oninput" maxlength="@Holding.MaxNameLength"
+                   placeholder="@(CanSearch ? T["Name or ISIN, then Enter to search"] : T["Name, e.g. SPDR MSCI World"])" aria-label="@T["Name"]"
+                   autocomplete="off" @ref="_nameInput" />
+            @if (CanSearch)
+            {
+                <button type="button" class="btn btn-ghost btn-icon btn-sm" title="@T["Search"]" aria-label="@T["Search"]"
+                        disabled="@(_searching || _name.Trim().Length < PriceService.MinSearchLength)" @onclick="SearchAsync"><Icon Name="search" Size="15" /></button>
+            }
+            @if (_matches is not null)
+            {
+                <div class="search-results" role="listbox" aria-label="@T["Matches"]">
+                    @if (_matches.Count == 0)
+                    {
+                        <div class="search-empty">@T["No matches for “{0}”. Try another name or the ISIN.", _searchedFor]</div>
+                    }
+                    @foreach (var m in _matches)
+                    {
+                        <button type="button" role="option" class="search-match" @onclick="() => Pick(m)">
+                            <span class="search-match-name">@m.Name</span>
+                            <span class="search-match-meta">
+                                @(m.Ticker) · @(m.Exchange) · <strong>@m.Currency</strong> · @m.Isin
+                                @if (m.Price is { } price)
+                                {
+                                    <span class="num"> · @Format.Price(price)</span>
+                                }
+                            </span>
+                        </button>
+                    }
+                    <button type="button" class="search-close" @onclick="CloseResults">@T["Close"]</button>
+                </div>
+            }
+        </div>
+        <input class="input input-code holding-isin" @bind="_isin" @bind:event="oninput" @bind:after="IsinChanged" maxlength="16" placeholder="ISIN"
+               aria-label="ISIN" autocomplete="off" spellcheck="false" />
+        <input class="input holding-valor" @bind="_valor" @bind:event="oninput" maxlength="16" placeholder="@T["Valor"]" title="@T["Valor (optional)"]"
+               aria-label="@T["Valor"]" autocomplete="off" spellcheck="false" inputmode="numeric" />
+        <input class="input holding-ticker" @bind="_ticker" @bind:event="oninput" maxlength="@Holding.MaxTickerLength"
+               placeholder="@(Existing?.PriceTicker ?? T["Ticker"])" title="@T["Ticker (optional), e.g. UBSG"]" aria-label="@T["Ticker"]" autocomplete="off" spellcheck="false" />
+        <select class="select holding-currency" @bind="_currency" aria-label="@T["Currency"]">
+            @if (!Currencies.IsKnown(_currency))
+            {
+                <option value="@_currency">@_currency</option>
+            }
+            @foreach (var c in Currencies.Ordered)
+            {
+                <option value="@c.Code" title="@c.Name(T.Language)">@c.Code</option>
+                if (c.Code == Currencies.Common[^1])
+                {
+                    <option disabled>────</option>
+                }
+            }
+        </select>
+    </div>
+    <div class="entry-fields">
+        <label class="entry-label entry-date"><span>@T["Bought"]</span><DateField Value="_buyDate" ValueChanged="d => { if (d is { } v) _buyDate = v; }" Label="@T["Buy date"]" /></label>
+        <label class="entry-label holding-number"><span>@T["Quantity"]</span><input class="input input-amount" @bind="_quantity" @bind:event="oninput" placeholder="10" autocomplete="off" spellcheck="false" inputmode="decimal" @ref="_quantityInput" /></label>
+        <label class="entry-label holding-number"><span>@T["Price per share"]</span><input class="input input-amount" @bind="_buyPrice" @bind:event="oninput" placeholder="87.50" autocomplete="off" spellcheck="false" inputmode="decimal" /></label>
+        @if (_sold)
+        {
+            <label class="entry-label entry-date"><span>@T["Sold"]</span><DateField Value="_sellDate" ValueChanged="d => _sellDate = d" Label="@T["Sale date"]" Optional="true" /></label>
+            <label class="entry-label holding-number"><span>@T["Sale price"]</span><input class="input input-amount" @bind="_sellPrice" @bind:event="oninput" autocomplete="off" spellcheck="false" inputmode="decimal" /></label>
+        }
+        <div class="holding-total">
+            <span class="total-label">@T["Cost"]</span>
+            <span class="num">@(BuyTotal is { } total ? Format.Money(total) : "–") <span class="code">@_currency</span></span>
+        </div>
+        <div class="entry-actions">
+            <button type="submit" class="btn btn-primary" disabled="@(_busy || _searching || string.IsNullOrWhiteSpace(_name) || !SearchFirst && (string.IsNullOrWhiteSpace(_quantity) || string.IsNullOrWhiteSpace(_buyPrice)))">
+                @if (SearchFirst)
+                {
+                    <Icon Name="search" Size="16" /> @T["Search"]
+                }
+                else if (Existing is null)
+                {
+                    <Icon Name="plus" Size="16" /> @T["Add"]
+                }
+                else
+                {
+                    <Icon Name="check" Size="16" /> @T["Save"]
+                }
+            </button>
+            @if (Existing is not null)
+            {
+                @if (OnSell.HasDelegate && !Existing.IsSold)
+                {
+                    <button type="button" class="btn btn-secondary" disabled="@_busy" @onclick="OnSell">@T["Sell"]</button>
+                }
+                <button type="button" class="btn btn-ghost btn-icon" title="@T["Cancel"]" aria-label="@T["Cancel"]" @onclick="OnCancel"><Icon Name="x" Size="16" /></button>
+                @if (OnDelete is not null)
+                {
+                    <button type="button" class="btn btn-ghost btn-icon btn-danger-text" title="@T["Delete"]" aria-label="@T["Delete"]" disabled="@_busy" @onclick="DeleteAsync"><Icon Name="trash" Size="16" /></button>
+                }
+            }
+        </div>
+    </div>
+    @if (_error is not null)
+    {
+        <div class="field-error">@_error</div>
+    }
+    else if (_sold)
+    {
+        <p class="field-hint">@T["Clear the sale date to make it a held position again."]</p>
+    }
+    else if (Existing is null && CanSearch)
+    {
+        <p class="field-hint">@T["Type a name or ISIN and press Enter to search (one request); pick a match to fill in the row."]</p>
+    }
+    else if (Existing is null)
+    {
+        <p class="field-hint">@T["One row per purchase. Enter adds it; the current price comes from the price service by ISIN."]</p>
+    }
+</form>
+
+@code {
+    [Parameter, EditorRequired] public DateOnly Today { get; set; }
+    [Parameter] public string DefaultCurrency { get; set; } = "CHF";
+
+    // The row being changed; null for the entry row that adds new ones.
+    [Parameter] public HoldingView? Existing { get; set; }
+
+    // Returns an error to show, or null when saved.
+    [Parameter, EditorRequired] public Func<HoldingInput, Task<string?>> OnSave { get; set; } = default!;
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public EventCallback OnSell { get; set; }
+    [Parameter] public Func<Task>? OnDelete { get; set; }
+    [Parameter] public bool AutoFocus { get; set; }
+
+    // Searches the price service; returns the matches, or an error to show. Null: no search.
+    [Parameter] public Func<string, Task<(IReadOnlyList<SecurityMatch>? Matches, string? Error)>>? OnSearch { get; set; }
+
+    private string _name = "";
+    private string _isin = "";
+    private string _valor = "";
+    private string _ticker = "";
+
+    // The Valor last filled in from the ISIN; replaced when the ISIN changes, kept once edited.
+    private string? _autoValor;
+    private string _currency = "CHF";
+    private DateOnly _buyDate;
+    private string _quantity = "";
+    private string _buyPrice = "";
+    private bool _sold;
+    private DateOnly? _sellDate;
+    private string _sellPrice = "";
+    private string? _error;
+    private bool _busy;
+    private bool _focusPending;
+    private int? _loadedFor = -1;
+    private ElementReference _nameInput;
+    private ElementReference _quantityInput;
+    private IReadOnlyList<SecurityMatch>? _matches;
+    private string _searchedFor = "";
+    private bool _searching;
+
+    private bool CanSearch => OnSearch is not null && Existing is null;
+
+    // Until there's an ISIN, Enter searches instead of adding.
+    private bool SearchFirst => CanSearch && string.IsNullOrWhiteSpace(_isin) && _name.Trim().Length >= PriceService.MinSearchLength;
+
+    private long? BuyTotal =>
+        Decimals.TryParse(_quantity, T.Format, out var q) && Decimals.TryParse(_buyPrice, T.Format, out var p) ? Decimals.Total(q, p) : null;
+
+    protected override void OnParametersSet()
+    {
+        // Fill in once per row (or once for the entry row), not on every render.
+        if (_loadedFor == Existing?.Id) return;
+        _loadedFor = Existing?.Id;
+        _name = Existing?.Name ?? "";
+        _isin = Existing?.Isin ?? "";
+        _valor = Existing?.Valor ?? "";
+        _ticker = Existing?.Ticker ?? "";
+        _autoValor = null;
+        _currency = Existing?.Currency ?? DefaultCurrency;
+        _buyDate = Existing?.BuyDate ?? Today;
+        _quantity = Existing is null ? "" : Format.DecimalInput(Existing.Quantity);
+        _buyPrice = Existing is null ? "" : Format.DecimalInput(Existing.BuyPrice);
+        _sold = Existing?.IsSold == true;
+        _sellDate = Existing?.SellDate;
+        _sellPrice = Existing?.SellPrice is { } sp ? Format.DecimalInput(sp) : "";
+        _error = null;
+        _focusPending = AutoFocus;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusPending) return;
+        _focusPending = false;
+        try { await _nameInput.FocusAsync(); } catch (JSException) { }
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && _matches is not null)
+            CloseResults();
+        else if (e.Key == "Escape" && Existing is not null)
+            await OnCancel.InvokeAsync();
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_busy || string.IsNullOrWhiteSpace(_name)) return;
+        if (SearchFirst)
+        {
+            await SearchAsync();
+            return;
+        }
+        if (!Decimals.TryParse(_quantity, T.Format, out var quantity) || quantity <= 0)
+        {
+            _error = T["Enter how many you bought, like 10 or 2.5."];
+            return;
+        }
+        if (!Decimals.TryParse(_buyPrice, T.Format, out var buyPrice) || buyPrice <= 0)
+        {
+            _error = T["Enter the price per share, like 87.50."];
+            return;
+        }
+        decimal? sellPrice = null;
+        if (_sold && _sellDate is not null)
+        {
+            if (!Decimals.TryParse(_sellPrice, T.Format, out var sp) || sp <= 0)
+            {
+                _error = T["Enter the price per share, like 87.50."];
+                return;
+            }
+            sellPrice = sp;
+        }
+        _busy = true;
+        try
+        {
+            _error = await OnSave(new HoldingInput(_name, _isin, _valor, _currency, _buyDate, quantity, buyPrice,
+                sellPrice is null ? null : _sellDate, sellPrice, _ticker));
+        }
+        finally
+        {
+            _busy = false;
+        }
+        if (_error is null && Existing is null)
+        {
+            // Ready for the next one: same date and currency, empty fields, cursor in the name.
+            _name = _isin = _valor = _ticker = _quantity = _buyPrice = "";
+            _autoValor = null;
+            _matches = null;
+            _focusPending = true;
+        }
+    }
+
+    private async Task SearchAsync()
+    {
+        if (OnSearch is null || _searching) return;
+        _searching = true;
+        _error = null;
+        try
+        {
+            _searchedFor = _name.Trim();
+            var (matches, error) = await OnSearch(_searchedFor);
+            // Listings in the row's currency first (UBSG on SIX before UBS in New York for CHF),
+            // otherwise in the service's order.
+            _matches = matches?.OrderByDescending(m => m.Currency == _currency).ToList();
+            _error = error;
+        }
+        finally
+        {
+            _searching = false;
+        }
+    }
+
+    // A match fills in what it knows; the cursor goes on to the quantity.
+    private async Task Pick(SecurityMatch m)
+    {
+        _name = m.Name;
+        _isin = m.Isin;
+        _currency = m.Currency;
+        _ticker = m.Ticker ?? "";
+        IsinChanged();
+        _matches = null;
+        _error = null;
+        StateHasChanged();
+        try { await _quantityInput.FocusAsync(); } catch (JSException) { }
+    }
+
+    private void CloseResults() => _matches = null;
+
+    // A Swiss or Liechtenstein ISIN fills in the Valor, unless one was typed.
+    private void IsinChanged()
+    {
+        if (_valor.Length > 0 && _valor != _autoValor) return;
+        _autoValor = Isin.Valor(_isin);
+        _valor = _autoValor ?? "";
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (OnDelete is not null)
+            await OnDelete();
+    }
+}

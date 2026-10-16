@@ -2,6 +2,7 @@
 @using System.Globalization
 @inherits AppPage
 @inject SettingsService Settings
+@inject PriceService Prices
 @inject IJSRuntime JS
 
 <PageTitle>@T["Settings"] · @AppInfo.Name</PageTitle>
@@ -84,6 +85,48 @@ else
             </div>
         </section>
 
+        <section class="setting" id="prices">
+            <div class="setting-intro">
+                <h2>@T["Portfolio prices"]</h2>
+                <p>@T["Current prices for your portfolios come from EODHD with your own API key, once a day after 06:00. The free plan allows 20 requests a day, one per security."]</p>
+            </div>
+            <div class="setting-body">
+                @if (_prices?.Key == Core.Security.SecretStatus.Set)
+                {
+                    <p><Icon Name="check" Size="15" /> @T["Your API key is saved."]
+                        @if (_prices.CheckedAt is { } at)
+                        {
+                            <span class="muted">&nbsp;@T["Prices were last updated {0}.", Format.Ago(T, at)]</span>
+                        }
+                    </p>
+                    @if (_prices.Error is { } error)
+                    {
+                        <div class="notice notice-warn">@T[error]</div>
+                    }
+                }
+                else if (_prices?.Key == Core.Security.SecretStatus.Unreadable)
+                {
+                    <div class="notice notice-warn">@T["Your API key can't be read anymore. Enter it again."]</div>
+                }
+                <form class="form" @onsubmit="SaveKeyAsync" @onsubmit:preventDefault="true">
+                    <label class="field">
+                        <span>@T["EODHD API key"]</span>
+                        <input class="input" type="password" @bind="_priceKey" @bind:event="oninput" maxlength="@PriceService.MaxKeyLength"
+                               autocomplete="off" spellcheck="false" placeholder="@(_prices?.Key == Core.Security.SecretStatus.Set ? "••••••••" : "")" />
+                    </label>
+                    <p class="field-hint">@T["Sign up for free at eodhd.com; the key is on your dashboard. It's stored encrypted and only used for prices."]
+                        <a href="https://eodhd.com/register" target="_blank" rel="noopener noreferrer">eodhd.com</a></p>
+                    <div class="actions">
+                        <button type="submit" class="btn btn-primary" disabled="@(Busy || string.IsNullOrWhiteSpace(_priceKey))">@T["Save key"]</button>
+                        @if (_prices?.Key != Core.Security.SecretStatus.NotSet)
+                        {
+                            <button type="button" class="btn btn-ghost btn-danger-text" disabled="@Busy" @onclick="RemoveKeyAsync">@T["Remove"]</button>
+                        }
+                    </div>
+                </form>
+            </div>
+        </section>
+
         <section class="setting">
             <div class="setting-intro">
                 <h2>@T["Homepage widget"]</h2>
@@ -144,6 +187,8 @@ else
     private string _region = Regions.DefaultRegion;
     private string _timeZone = Regions.DefaultTimeZone;
     private string? _newToken;
+    private PriceStatus? _prices;
+    private string _priceKey = "";
 
     private bool Changed => _s is not null && (_language != _s.Language || _region != _s.RegionFormat || _timeZone != _s.TimeZone);
 
@@ -155,6 +200,33 @@ else
         _language = _s.Language;
         _region = _s.RegionFormat;
         _timeZone = _s.TimeZone;
+        _prices = await Prices.GetStatusAsync(await UserIdAsync(), PageToken);
+    }
+
+    // Saving a key fetches the prices right away, so a wrong key shows at once.
+    private async Task SaveKeyAsync()
+    {
+        var userId = await UserIdAsync();
+        var key = _priceKey;
+        if (!await RunAsync(async () =>
+            {
+                await Prices.SetKeyAsync(userId, key, PageToken);
+                await Prices.RefreshAsync(userId, null, PageToken);
+            }))
+            return;
+        _priceKey = "";
+        _prices = await Prices.GetStatusAsync(userId, PageToken);
+        if (_prices.Error is null)
+            Ui.Toast.Success(T["API key saved."]);
+    }
+
+    private async Task RemoveKeyAsync()
+    {
+        if (!await Ui.Confirm.AskAsync(T["Remove the API key?"], T["Portfolios keep their last prices but aren't updated anymore."], T["Remove"], danger: true))
+            return;
+        var userId = await UserIdAsync();
+        if (await RunAsync(() => Prices.SetKeyAsync(userId, null, PageToken)))
+            _prices = await Prices.GetStatusAsync(userId, PageToken);
     }
 
     private async Task SaveAsync()

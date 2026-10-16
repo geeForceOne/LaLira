@@ -1,0 +1,484 @@
+@page "/portfolios/{Id:int}"
+@inherits AppPage
+@inject PortfolioService Portfolios
+@inject PriceService Prices
+@inject CsvService Csv
+@inject IJSRuntime JS
+
+<PageTitle>@(_view?.Portfolio.Name ?? T["Portfolio"]) · @AppInfo.Name</PageTitle>
+
+@if (_missing)
+{
+    <div class="empty">
+        <h2>@T["This portfolio doesn't exist anymore"]</h2>
+        <a class="btn btn-secondary" href="">@T["Go to the overview"]</a>
+    </div>
+}
+else if (_view is null || _prices is null)
+{
+    <p class="page-loading">…</p>
+}
+else
+{
+    var held = _view.Holdings.Where(h => !h.IsSold).ToList();
+    var sold = _view.Holdings.Where(h => h.IsSold).ToList();
+    <div class="page-head">
+        <div>
+            <p class="eyebrow"><a href="">@T["Overview"]</a> / @T["Portfolio"]</p>
+            <h1 class="account-title"><span class="acct-icon acct-icon-lg"><Icon Name="chart" Size="22" /></span>@_view.Portfolio.Name</h1>
+            <p class="page-sub">
+                @if (_prices.Key == Core.Security.SecretStatus.Set)
+                {
+                    <span>@T["Closing prices from EODHD"]@(_prices.CheckedAt is { } at ? ", " + T["updated {0}", Format.Ago(T, at)] : "")</span>
+                }
+            </p>
+        </div>
+        <div class="page-actions">
+            <div class="row-menu">
+                <button type="button" class="btn btn-secondary btn-icon" aria-label="@T["More actions"]" aria-expanded="@(_menu ? "true" : "false")" @onclick="() => _menu = !_menu"><Icon Name="more" /></button>
+                @if (_menu)
+                {
+                    <div class="menu-scrim" @onclick="() => _menu = false"></div>
+                    <div class="menu-list" @onclick="() => _menu = false">
+                        <button type="button" @onclick="RenameAsync"><Icon Name="edit" Size="16" /> @T["Rename portfolio"]</button>
+                        @if (_prices.Key == Core.Security.SecretStatus.Set)
+                        {
+                            <button type="button" @onclick="RefreshPricesAsync"><Icon Name="restore" Size="16" /> @T["Update prices now"]</button>
+                        }
+                        <button type="button" @onclick="ExportAsync"><Icon Name="download" Size="16" /> @T["Export CSV"]</button>
+                        <hr />
+                        <button type="button" class="danger" @onclick="DeleteAsync"><Icon Name="trash" Size="16" /> @T["Delete portfolio"]</button>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (_prices.Key == Core.Security.SecretStatus.NotSet)
+    {
+        <div class="notice notice-info notice-row">
+            <Icon Name="info" />
+            <span>@T["For current values, add your free EODHD API key in Settings. Until then, only cost and sales are shown."]</span>
+            <a class="btn btn-ghost btn-sm" href="settings#prices">@T["Settings"]</a>
+        </div>
+    }
+    else if (_prices.Key == Core.Security.SecretStatus.Unreadable)
+    {
+        <div class="notice notice-warn notice-row">
+            <Icon Name="alert" />
+            <span>@T["Your EODHD API key can't be read anymore. Enter it again in Settings."]</span>
+            <a class="btn btn-ghost btn-sm" href="settings#prices">@T["Settings"]</a>
+        </div>
+    }
+    else if (_prices.Error is { } error)
+    {
+        <div class="notice notice-warn notice-row">
+            <Icon Name="alert" />
+            <span>@T[error]</span>
+        </div>
+    }
+
+    @if (_view.Totals.Count > 0)
+    {
+        <section class="totals portfolio-totals" aria-label="@T["Totals"]">
+            @foreach (var t in _view.Totals)
+            {
+                <div class="total">
+                    @if (t.HeldCount > 0)
+                    {
+                        <div class="total-label">@T["Value"] <span class="code">@t.Currency</span></div>
+                        <div class="total-value num">@(t.WithoutPrice == t.HeldCount ? "–" : Format.Money(t.Value))</div>
+                        <div class="total-flow">
+                            <span><span class="flow-label">@T["Cost"]</span> <span class="num">@Format.Money(t.Cost)</span></span>
+                            @if (t.WithoutPrice < t.HeldCount)
+                            {
+                                <span><span class="flow-label">@T["Gain/loss"]</span> <span class="num @(t.Unrealized < 0 ? "neg" : "")">@Format.Money(t.Unrealized, sign: true)@(t.UnrealizedPercent is { } pct ? $" ({Format.Percent(pct)})" : "")</span></span>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="total-label">@T["Realized"] <span class="code">@t.Currency</span></div>
+                        <div class="total-value num @(t.Realized < 0 ? "neg" : "")">@Format.Money(t.Realized, sign: true)</div>
+                    }
+                    @if (t.HeldCount > 0 && sold.Any(s => s.Currency == t.Currency))
+                    {
+                        <div class="total-flow">
+                            <span><span class="flow-label">@T["Realized"]</span> <span class="num @(t.Realized < 0 ? "neg" : "")">@Format.Money(t.Realized, sign: true)</span></span>
+                        </div>
+                    }
+                    @if (t.WithoutPrice > 0 && _prices.Key == Core.Security.SecretStatus.Set)
+                    {
+                        <div class="muted small">@T.Plural(t.WithoutPrice, "{0} without a price yet", "{0} without a price yet")</div>
+                    }
+                </div>
+            }
+        </section>
+    }
+
+    <section class="entry-bar" aria-label="@T["New purchase"]">
+        <HoldingEntry Today="_view.Today" DefaultCurrency="@DefaultCurrency" OnSave="AddAsync" AutoFocus="_view.Holdings.Count == 0"
+                      OnSearch="@(_prices.Key == Core.Security.SecretStatus.Set ? SearchAsync : null)" />
+    </section>
+
+    <section class="section ledger-section">
+        <div class="section-head">
+            <h2>@T["Held"]<span class="count">@held.Count</span></h2>
+        </div>
+        @if (held.Count == 0)
+        {
+            <p class="muted">@T["Nothing held yet. Add a purchase above."]</p>
+        }
+        else
+        {
+            <div class="table-scroll">
+                <table class="ledger holdings">
+                    <thead>
+                        <tr>
+                            <th>@T["Name"]</th>
+                            <th class="col-date">@T["Bought"]</th>
+                            <th class="num hide-phone">@T["Quantity"]</th>
+                            <th class="num hide-narrow">@T["Buy price"]</th>
+                            <th class="num hide-phone">@T["Cost"]</th>
+                            <th class="num hide-tablet">@T["Price"]</th>
+                            <th class="num">@T["Value"]</th>
+                            <th class="num">@T["Gain/loss"]</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var h in held)
+                        {
+                            var row = h;
+                            if (_selling == h.Id)
+                            {
+                                <tr class="editing" @key="h.Id"><td colspan="8"><SaleEntry Holding="row" Today="_view.Today" OnSave="s => SellAsync(row, s)" OnCancel="() => _selling = null" /></td></tr>
+                                continue;
+                            }
+                            if (_editing == h.Id)
+                            {
+                                <tr class="editing" @key="h.Id">
+                                    <td colspan="8">
+                                        <HoldingEntry Today="_view.Today" Existing="row" AutoFocus="true" OnSave="input => UpdateAsync(row.Id, input)"
+                                                      OnCancel="() => _editing = null" OnSell="() => StartSale(row.Id)" OnDelete="() => DeleteHoldingAsync(row)" />
+                                    </td>
+                                </tr>
+                                continue;
+                            }
+                            <tr class="ledger-row" @key="h.Id" @onclick="() => Edit(row.Id)" tabindex="0" @onkeydown="e => OnRowKey(e, row.Id)" title="@T["Click to change or sell"]">
+                                <td>
+                                    <span class="desc">@h.Name</span>
+                                    @if (h.ShownTicker is { } ticker)
+                                    {
+                                        <span class="ticker">@ticker</span>
+                                    }
+                                    <span class="holding-ids holding-isin-line">@h.Isin@(h.Valor is null ? "" : " · " + T["Valor"] + " " + h.Valor)</span>
+                                    <span class="row-date-mobile num">@Format.Quantity(h.Quantity) · @Format.Date(h.BuyDate)</span>
+                                </td>
+                                <td class="col-date num">@Format.Date(h.BuyDate)</td>
+                                <td class="num hide-phone">@Format.Quantity(h.Quantity)</td>
+                                <td class="num hide-narrow">@Format.Price(h.BuyPrice)</td>
+                                <td class="num hide-phone">@Format.Money(h.BuyTotal)</td>
+                                <td class="num hide-tablet">
+                                    @if (h.Price is { } price)
+                                    {
+                                        @Format.Price(price)
+                                        <span class="holding-ids" title="@T["Closing price of {0}", Format.Date(h.PriceDate!.Value)]">@Format.Date(h.PriceDate!.Value)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="muted">–</span>
+                                    }
+                                </td>
+                                <td class="num">@(h.Value is { } v ? Format.Money(v) : "–") <span class="code">@h.Currency</span></td>
+                                <td class="num @(h.Gain < 0 ? "neg" : "")">
+                                    @if (h.Gain is { } g)
+                                    {
+                                        @Format.Money(g, sign: true)
+                                        @if (h.GainPercent is { } pct)
+                                        {
+                                            <span class="holding-ids">@Format.Percent(pct)</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span class="muted">–</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    @if (sold.Count > 0)
+    {
+        <section class="section ledger-section">
+            <div class="section-head">
+                <h2>@T["Sold"]<span class="count">@sold.Count</span></h2>
+            </div>
+            <div class="table-scroll">
+                <table class="ledger holdings">
+                    <thead>
+                        <tr>
+                            <th>@T["Name"]</th>
+                            <th class="col-date">@T["Sold"]</th>
+                            <th class="num hide-phone">@T["Quantity"]</th>
+                            <th class="num hide-narrow">@T["Buy price"]</th>
+                            <th class="num hide-tablet">@T["Sale price"]</th>
+                            <th class="num hide-phone">@T["Cost"]</th>
+                            <th class="num">@T["Proceeds"]</th>
+                            <th class="num">@T["Gain/loss"]</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var h in sold)
+                        {
+                            var row = h;
+                            if (_editing == h.Id)
+                            {
+                                <tr class="editing" @key="h.Id">
+                                    <td colspan="8">
+                                        <HoldingEntry Today="_view.Today" Existing="row" AutoFocus="true" OnSave="input => UpdateAsync(row.Id, input)"
+                                                      OnCancel="() => _editing = null" OnDelete="() => DeleteHoldingAsync(row)" />
+                                    </td>
+                                </tr>
+                                continue;
+                            }
+                            <tr class="ledger-row" @key="h.Id" @onclick="() => Edit(row.Id)" tabindex="0" @onkeydown="e => OnRowKey(e, row.Id)" title="@T["Click to change"]">
+                                <td>
+                                    <span class="desc">@h.Name</span>
+                                    @if (h.ShownTicker is { } ticker)
+                                    {
+                                        <span class="ticker">@ticker</span>
+                                    }
+                                    <span class="holding-ids holding-isin-line">@h.Isin · @T["bought {0}", Format.Date(h.BuyDate)]</span>
+                                    <span class="row-date-mobile num">@Format.Quantity(h.Quantity) · @Format.Date(h.SellDate!.Value)</span>
+                                </td>
+                                <td class="col-date num">@Format.Date(h.SellDate!.Value)</td>
+                                <td class="num hide-phone">@Format.Quantity(h.Quantity)</td>
+                                <td class="num hide-narrow">@Format.Price(h.BuyPrice)</td>
+                                <td class="num hide-tablet">@Format.Price(h.SellPrice!.Value)</td>
+                                <td class="num hide-phone">@Format.Money(h.BuyTotal)</td>
+                                <td class="num">@Format.Money(h.SellTotal!.Value) <span class="code">@h.Currency</span></td>
+                                <td class="num @(h.Gain < 0 ? "neg" : "")">
+                                    @Format.Money(h.Gain!.Value, sign: true)
+                                    @if (h.GainPercent is { } pct)
+                                    {
+                                        <span class="holding-ids">@Format.Percent(pct)</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private PortfolioView? _view;
+    private PriceStatus? _prices;
+    private bool _missing;
+    private bool _menu;
+    private int? _editing;
+    private int? _selling;
+
+    // New rows start in the currency used most in this portfolio.
+    private string DefaultCurrency => _view?.Holdings.GroupBy(h => h.Currency).OrderByDescending(g => g.Count()).Select(g => g.Key).FirstOrDefault()
+        ?? (Currencies.IsKnown(new System.Globalization.RegionInfo(T.Format.Name).ISOCurrencySymbol) ? new System.Globalization.RegionInfo(T.Format.Name).ISOCurrencySymbol : "CHF");
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _view = null;
+        _missing = false;
+        _editing = _selling = null;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var userId = await UserIdAsync();
+            _view = await Portfolios.GetAsync(userId, Id, PageToken);
+            _prices = await Prices.GetStatusAsync(userId, PageToken);
+        }
+        catch (NotFoundException)
+        {
+            _missing = true;
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        await LoadAsync();
+        await Ui.RefreshAccountsAsync();
+    }
+
+    private void Edit(int holdingId)
+    {
+        _selling = null;
+        _editing = holdingId;
+    }
+
+    private void StartSale(int holdingId)
+    {
+        _editing = null;
+        _selling = holdingId;
+    }
+
+    private void OnRowKey(KeyboardEventArgs e, int holdingId)
+    {
+        if (e.Key == "Enter") Edit(holdingId);
+    }
+
+    private async Task<string?> AddAsync(HoldingInput input)
+    {
+        var userId = await UserIdAsync();
+        try
+        {
+            await Portfolios.AddHoldingAsync(userId, Id, input, PageToken);
+        }
+        catch (Exception ex) when (ex is InputException or NotFoundException)
+        {
+            return ErrorText(ex);
+        }
+        await ReloadAsync();
+        // Called from the entry row's callback, which doesn't re-render this page by itself.
+        StateHasChanged();
+        await FetchPriceAsync(userId, input.Isin);
+        return null;
+    }
+
+    private async Task<(IReadOnlyList<Core.Prices.SecurityMatch>?, string?)> SearchAsync(string query)
+    {
+        try
+        {
+            return (await Prices.SearchAsync(await UserIdAsync(), query, PageToken), null);
+        }
+        catch (InputException ex)
+        {
+            return (null, ErrorText(ex));
+        }
+    }
+
+    // A new security gets its price right away (one call), so its value shows.
+    private async Task FetchPriceAsync(string userId, string? isin)
+    {
+        isin = Isin.Normalize(isin);
+        if (_view is null || _prices?.Key != Core.Security.SecretStatus.Set) return;
+        if (!_view.Holdings.Any(h => !h.IsSold && h.Isin == isin && h.Price is null)) return;
+        try
+        {
+            await Prices.RefreshAsync(userId, isin, PageToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        await ReloadAsync();
+        StateHasChanged();
+    }
+
+    private async Task<string?> UpdateAsync(int holdingId, HoldingInput input)
+    {
+        var userId = await UserIdAsync();
+        try
+        {
+            await Portfolios.UpdateHoldingAsync(userId, holdingId, input, PageToken);
+        }
+        catch (Exception ex) when (ex is InputException or NotFoundException)
+        {
+            return ErrorText(ex);
+        }
+        _editing = null;
+        await ReloadAsync();
+        StateHasChanged();
+        await FetchPriceAsync(userId, input.Isin);
+        return null;
+    }
+
+    private async Task<string?> SellAsync(HoldingView holding, SaleInput sale)
+    {
+        try
+        {
+            await Portfolios.SellAsync(await UserIdAsync(), holding.Id, sale, PageToken);
+        }
+        catch (Exception ex) when (ex is InputException or NotFoundException)
+        {
+            return ErrorText(ex);
+        }
+        _selling = null;
+        Ui.Toast.Success(T["{0} sold.", holding.Name]);
+        await ReloadAsync();
+        StateHasChanged();
+        return null;
+    }
+
+    private async Task DeleteHoldingAsync(HoldingView h)
+    {
+        if (!await Ui.Confirm.AskAsync(T["Delete this purchase?"], $"{h.Name} · {Format.Date(h.BuyDate)} · {Format.Quantity(h.Quantity)}", T["Delete"], danger: true))
+            return;
+        var userId = await UserIdAsync();
+        if (await RunAsync(() => Portfolios.DeleteHoldingAsync(userId, h.Id, PageToken)))
+        {
+            _editing = null;
+            await ReloadAsync();
+        }
+    }
+
+    private async Task RenameAsync()
+    {
+        if (_view is null) return;
+        var name = await Ui.Prompt.AskAsync(T["Rename portfolio"], T["Name"], _view.Portfolio.Name, T["Save"]);
+        if (name is null || name.Trim() == _view.Portfolio.Name) return;
+        var userId = await UserIdAsync();
+        if (await RunAsync(() => Portfolios.RenameAsync(userId, Id, name, PageToken)))
+            await ReloadAsync();
+    }
+
+    private async Task RefreshPricesAsync()
+    {
+        var userId = await UserIdAsync();
+        var count = 0;
+        if (!await RunAsync(async () => count = await Prices.RefreshAsync(userId, null, PageToken)))
+            return;
+        await LoadAsync();
+        if (_prices?.Error is null)
+            Ui.Toast.Success(T.Plural(count, "{0} price updated.", "{0} prices updated."));
+        await Ui.RefreshAccountsAsync();
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_view is null) return;
+        var p = _view.Portfolio;
+        if (!await Ui.Confirm.AskAsync(T["Delete {0}?", p.Name],
+                T.Plural(_view.Holdings.Count, "The portfolio and its {0} row are deleted. This can't be undone.",
+                    "The portfolio and its {0} rows are deleted. This can't be undone."),
+                T["Delete portfolio"], danger: true, typedConfirmation: p.Name))
+            return;
+        var userId = await UserIdAsync();
+        if (await RunAsync(() => Portfolios.DeleteAsync(userId, Id, PageToken)))
+        {
+            Ui.Toast.Success(T["{0} deleted.", p.Name]);
+            await Ui.RefreshAccountsAsync();
+            Nav.NavigateTo("");
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var (name, content) = await Csv.ExportPortfolioAsync(await UserIdAsync(), Id, T, PageToken);
+            using var stream = new DotNetStreamReference(new MemoryStream(content));
+            await JS.InvokeVoidAsync("lalira.download", name, "text/csv", stream);
+        });
+    }
+}

@@ -17,6 +17,17 @@ public static class Format
 
     public static string Input(long cents) => Core.Ledger.Money.FormatForInput(Math.Abs(cents), C);
 
+    // Portfolios: quantities with only the decimals they have, prices with at least two.
+    public static string Quantity(decimal value) => Decimals.Format(value, C);
+
+    public static string Price(decimal value) => Decimals.FormatPrice(value, C);
+
+    public static string DecimalInput(decimal value) => Decimals.FormatForInput(value, C);
+
+    // "+12.40%", "−3.10%"
+    public static string Percent(decimal value) =>
+        (value > 0 ? "+" : value < 0 ? "−" : "") + Math.Abs(value).ToString("0.00", C) + "%";
+
     public static string Date(DateOnly date) => date.ToString("d", C);
 
     // "Tue, 14.10.2026": the weekday in the UI language, the date in the region format (English

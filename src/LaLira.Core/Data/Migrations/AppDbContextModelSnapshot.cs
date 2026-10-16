@@ -262,6 +262,63 @@ namespace LaLira.Core.Data.Migrations
                     b.ToTable("EmailSettings");
                 });
 
+            modelBuilder.Entity("LaLira.Core.Models.Holding", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateOnly>("BuyDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("BuyPrice")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Isin")
+                        .IsRequired()
+                        .HasMaxLength(12)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PortfolioId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Quantity")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly?>("SellDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("SellPrice")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Ticker")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Valor")
+                        .HasMaxLength(12)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PortfolioId");
+
+                    b.ToTable("Holdings");
+                });
+
             modelBuilder.Entity("LaLira.Core.Models.Notice", b =>
                 {
                     b.Property<int>("Id")
@@ -286,6 +343,34 @@ namespace LaLira.Core.Data.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("Notices");
+                });
+
+            modelBuilder.Entity("LaLira.Core.Models.Portfolio", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Portfolios");
                 });
 
             modelBuilder.Entity("LaLira.Core.Models.Position", b =>
@@ -386,6 +471,51 @@ namespace LaLira.Core.Data.Migrations
                     b.ToTable("RecurringRules");
                 });
 
+            modelBuilder.Entity("LaLira.Core.Models.SecurityPrice", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Exchange")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FetchedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Isin")
+                        .IsRequired()
+                        .HasMaxLength(12)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Price")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly>("PriceDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Ticker")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Isin", "Currency")
+                        .IsUnique();
+
+                    b.ToTable("SecurityPrices");
+                });
+
             modelBuilder.Entity("LaLira.Core.Models.SiteSettings", b =>
                 {
                     b.Property<int>("Id")
@@ -432,6 +562,15 @@ namespace LaLira.Core.Data.Migrations
                     b.Property<string>("Language")
                         .IsRequired()
                         .HasMaxLength(8)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PriceApiKeyProtected")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PriceError")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("PricesCheckedAt")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("RegionFormat")
@@ -600,7 +739,27 @@ namespace LaLira.Core.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("LaLira.Core.Models.Holding", b =>
+                {
+                    b.HasOne("LaLira.Core.Models.Portfolio", "Portfolio")
+                        .WithMany("Holdings")
+                        .HasForeignKey("PortfolioId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Portfolio");
+                });
+
             modelBuilder.Entity("LaLira.Core.Models.Notice", b =>
+                {
+                    b.HasOne("LaLira.Core.Models.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("LaLira.Core.Models.Portfolio", b =>
                 {
                     b.HasOne("LaLira.Core.Models.AppUser", null)
                         .WithMany()
@@ -634,6 +793,15 @@ namespace LaLira.Core.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Account");
+                });
+
+            modelBuilder.Entity("LaLira.Core.Models.SecurityPrice", b =>
+                {
+                    b.HasOne("LaLira.Core.Models.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("LaLira.Core.Models.UserSettings", b =>
@@ -701,6 +869,11 @@ namespace LaLira.Core.Data.Migrations
                     b.Navigation("Positions");
 
                     b.Navigation("RecurringRules");
+                });
+
+            modelBuilder.Entity("LaLira.Core.Models.Portfolio", b =>
+                {
+                    b.Navigation("Holdings");
                 });
 #pragma warning restore 612, 618
         }

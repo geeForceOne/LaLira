@@ -1,0 +1,101 @@
+@inject Texts T
+
+@* Selling a held row in place: when, how many (all of it to start with) and at what price. A
+   partial sale splits the row into the sold part and the rest. *@
+<form class="entry sale-entry" @onsubmit="SubmitAsync" @onsubmit:preventDefault="true" @onkeydown="OnKeyDown">
+    <div class="sale-title">
+        <strong>@T["Sell {0}", Holding.Name]</strong>
+        <span class="muted small">@T["Held: {0}, bought {1} at {2}", Format.Quantity(Holding.Quantity), Format.Date(Holding.BuyDate), Format.Price(Holding.BuyPrice)]</span>
+    </div>
+    <div class="entry-fields">
+        <label class="entry-label entry-date"><span>@T["Sold"]</span><DateField Value="_date" ValueChanged="d => { if (d is { } v) _date = v; }" Label="@T["Sale date"]" /></label>
+        <label class="entry-label holding-number"><span>@T["Quantity"]</span><input class="input input-amount" @bind="_quantity" @bind:event="oninput" autocomplete="off" spellcheck="false" inputmode="decimal" @ref="_quantityInput" /></label>
+        <label class="entry-label holding-number"><span>@T["Sale price"]</span><input class="input input-amount" @bind="_price" @bind:event="oninput" autocomplete="off" spellcheck="false" inputmode="decimal" /></label>
+        <div class="holding-total">
+            <span class="total-label">@T["Proceeds"]</span>
+            <span class="num">@(Proceeds is { } p ? Format.Money(p) : "–") <span class="code">@Holding.Currency</span></span>
+        </div>
+        <div class="holding-total">
+            <span class="total-label">@T["Gain/loss"]</span>
+            <span class="num @(Gain < 0 ? "neg" : "")">@(Gain is { } g ? Format.Money(g, sign: true) : "–")</span>
+        </div>
+        <div class="entry-actions">
+            <button type="submit" class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_quantity) || string.IsNullOrWhiteSpace(_price))">@T["Sell"]</button>
+            <button type="button" class="btn btn-ghost btn-icon" title="@T["Cancel"]" aria-label="@T["Cancel"]" @onclick="OnCancel"><Icon Name="x" Size="16" /></button>
+        </div>
+    </div>
+    @if (_error is not null)
+    {
+        <div class="field-error">@_error</div>
+    }
+    else if (Sold is { } q && q < Holding.Quantity && q > 0)
+    {
+        <p class="field-hint">@T["Partial sale: {0} stay held in their own row.", Format.Quantity(Holding.Quantity - q)]</p>
+    }
+</form>
+
+@code {
+    [Parameter, EditorRequired] public HoldingView Holding { get; set; } = default!;
+    [Parameter, EditorRequired] public DateOnly Today { get; set; }
+
+    // Returns an error to show, or null when sold.
+    [Parameter, EditorRequired] public Func<SaleInput, Task<string?>> OnSave { get; set; } = default!;
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private DateOnly _date;
+    private string _quantity = "";
+    private string _price = "";
+    private string? _error;
+    private bool _busy;
+    private bool _focusPending;
+    private ElementReference _quantityInput;
+
+    private decimal? Sold => Decimals.TryParse(_quantity, T.Format, out var q) ? q : null;
+    private long? Proceeds => Sold is { } q && Decimals.TryParse(_price, T.Format, out var p) ? Decimals.Total(q, p) : null;
+    private long? Gain => Proceeds is { } p && Sold is { } q ? p - Decimals.Total(q, Holding.BuyPrice) : null;
+
+    protected override void OnInitialized()
+    {
+        _date = Today < Holding.BuyDate ? Holding.BuyDate : Today;
+        _quantity = Format.DecimalInput(Holding.Quantity);
+        _price = Holding.Price is { } p ? Format.DecimalInput(p) : "";
+        _focusPending = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusPending) return;
+        _focusPending = false;
+        try { await _quantityInput.FocusAsync(); } catch (JSException) { }
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+            await OnCancel.InvokeAsync();
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_busy) return;
+        if (Sold is not { } quantity || quantity <= 0)
+        {
+            _error = T["Enter how many were sold."];
+            return;
+        }
+        if (!Decimals.TryParse(_price, T.Format, out var price) || price <= 0)
+        {
+            _error = T["Enter the price per share, like 87.50."];
+            return;
+        }
+        _busy = true;
+        try
+        {
+            _error = await OnSave(new SaleInput(_date, quantity, price));
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

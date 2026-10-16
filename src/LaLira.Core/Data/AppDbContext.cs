@@ -15,6 +15,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<EmailSettings> EmailSettings => Set<EmailSettings>();
     public DbSet<SiteSettings> SiteSettings => Set<SiteSettings>();
     public DbSet<AccountRequest> AccountRequests => Set<AccountRequest>();
+    public DbSet<Portfolio> Portfolios => Set<Portfolio>();
+    public DbSet<Holding> Holdings => Set<Holding>();
+    public DbSet<SecurityPrice> SecurityPrices => Set<SecurityPrice>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -57,6 +60,34 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
             e.Property(x => x.DescriptionTemplate).HasMaxLength(Position.MaxDescriptionLength);
             e.Property(x => x.Language).HasMaxLength(8);
             e.HasIndex(x => x.NextDue);
+        });
+
+        b.Entity<Portfolio>(e =>
+        {
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.Property(x => x.Name).HasMaxLength(Portfolio.MaxNameLength);
+            e.HasIndex(x => x.UserId);
+        });
+
+        b.Entity<Holding>(e =>
+        {
+            e.HasOne(x => x.Portfolio).WithMany(p => p.Holdings).HasForeignKey(x => x.PortfolioId).OnDelete(DeleteBehavior.Cascade);
+            e.Property(x => x.Name).HasMaxLength(Holding.MaxNameLength);
+            e.Property(x => x.Isin).HasMaxLength(12);
+            e.Property(x => x.Valor).HasMaxLength(Holding.MaxValorLength);
+            e.Property(x => x.Ticker).HasMaxLength(Holding.MaxTickerLength);
+            e.Property(x => x.Currency).HasMaxLength(3);
+            e.HasIndex(x => x.PortfolioId);
+        });
+
+        b.Entity<SecurityPrice>(e =>
+        {
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.Property(x => x.Isin).HasMaxLength(12);
+            e.Property(x => x.Currency).HasMaxLength(3);
+            e.Property(x => x.Exchange).HasMaxLength(16);
+            e.Property(x => x.Ticker).HasMaxLength(32);
+            e.HasIndex(x => new { x.UserId, x.Isin, x.Currency }).IsUnique();
         });
 
         b.Entity<EmailReport>(e =>

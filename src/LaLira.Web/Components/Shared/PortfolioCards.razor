@@ -1,0 +1,44 @@
+@inject Texts T
+
+@* The overview's portfolio cards: what's held is worth (per currency, from the last prices) and
+   the gain or loss on it. *@
+<section class="section">
+    <div class="section-head">
+        <h2>@T["Portfolios"]<span class="count">@Cards.Count</span></h2>
+        <button type="button" class="btn btn-ghost btn-sm" @onclick="OnNew"><Icon Name="plus" Size="15" /> @T["New portfolio"]</button>
+    </div>
+    <div class="acct-grid">
+        @foreach (var p in Cards)
+        {
+            <a class="acct-card" href="@($"portfolios/{p.Portfolio.Id}")" @key="p.Portfolio.Id">
+                <div class="acct-top">
+                    <span class="acct-name"><span class="acct-icon"><Icon Name="chart" Size="16" /></span>@p.Portfolio.Name</span>
+                    <span class="code">@T.Plural(p.HeldCount, "{0} security", "{0} securities")</span>
+                </div>
+                @if (p.Totals.All(t => t.HeldCount == 0))
+                {
+                    <div class="muted small">@T["Nothing held"]</div>
+                }
+                @foreach (var t in p.Totals.Where(t => t.HeldCount > 0))
+                {
+                    <div class="portfolio-line">
+                        <span class="acct-balance num">@(t.WithoutPrice == t.HeldCount ? Format.Money(t.Cost, false) : Format.Money(t.Value, false)) <span class="code">@t.Currency</span></span>
+                        @if (t.WithoutPrice < t.HeldCount)
+                        {
+                            <span class="num small @(t.Unrealized < 0 ? "neg" : "muted")">@Format.Money(t.Unrealized, false, sign: true)@(t.UnrealizedPercent is { } pct ? $" · {Format.Percent(pct)}" : "")</span>
+                        }
+                        else
+                        {
+                            <span class="muted small">@T["cost, no prices yet"]</span>
+                        }
+                    </div>
+                }
+            </a>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<PortfolioCard> Cards { get; set; } = [];
+    [Parameter] public EventCallback OnNew { get; set; }
+}

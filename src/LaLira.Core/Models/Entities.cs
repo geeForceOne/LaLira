@@ -44,6 +44,13 @@ public sealed class UserSettings
     // SHA-256 (hex) of the user's homepage widget token; the token itself is shown once.
     public string? HomepageTokenHash { get; set; }
     public DateTime? HomepageTokenCreatedAt { get; set; }
+
+    // The person's own EODHD key for portfolio prices, encrypted with Data Protection.
+    public string? PriceApiKeyProtected { get; set; }
+
+    // The last daily price refresh (UTC), and what went wrong in it, if anything.
+    public DateTime? PricesCheckedAt { get; set; }
+    public string? PriceError { get; set; }
 }
 
 // A ledger account (bank account, savings, cash...). Amounts are in hundredths of the currency
@@ -131,6 +138,72 @@ public sealed class RecurringRule
     // The next date to book; null once the rule has run past its end date.
     public DateOnly? NextDue { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// A group of securities, e.g. "ETFs and shares". Not linked to the cash accounts.
+public sealed class Portfolio
+{
+    public const int MaxNameLength = 80;
+
+    public int Id { get; set; }
+    public string UserId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public int SortOrder { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public List<Holding> Holdings { get; set; } = [];
+}
+
+// One purchase of a security. Quantity and prices are decimals (fractional shares, prices with
+// more than two decimals); totals are rounded to cents when shown. Selling part of it splits it
+// into a sold row and a held row.
+public sealed class Holding
+{
+    public const int MaxNameLength = 120;
+    public const int MaxValorLength = 12;
+    public const int MaxTickerLength = 32;
+
+    public int Id { get; set; }
+    public int PortfolioId { get; set; }
+    public Portfolio? Portfolio { get; set; }
+    public string Name { get; set; } = "";
+
+    // Compact upper case, check digit verified; prices are looked up by it.
+    public string Isin { get; set; } = "";
+
+    // The Swiss Valor number; shown only.
+    public string? Valor { get; set; }
+
+    // A short name shown next to the name ("UBSG"), from a search or typed. Without one, the
+    // ticker of the price's listing shows.
+    public string? Ticker { get; set; }
+
+    // ISO 4217 code of the prices.
+    public string Currency { get; set; } = "CHF";
+    public DateOnly BuyDate { get; set; }
+    public decimal Quantity { get; set; }
+    public decimal BuyPrice { get; set; }
+
+    // Both set once it's sold.
+    public DateOnly? SellDate { get; set; }
+    public decimal? SellPrice { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// The last close of a security in one currency, fetched with the person's own key.
+public sealed class SecurityPrice
+{
+    public int Id { get; set; }
+    public string UserId { get; set; } = "";
+    public string Isin { get; set; } = "";
+    public string Currency { get; set; } = "";
+    public decimal Price { get; set; }
+    public DateOnly PriceDate { get; set; }
+
+    // Where the price is from, e.g. "SW" (SIX) and the ticker there.
+    public string? Exchange { get; set; }
+    public string? Ticker { get; set; }
+    public DateTime FetchedAt { get; set; } = DateTime.UtcNow;
 }
 
 public sealed class EmailReport
