@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.4.0 - 2026-10-16
+
+### New
+- Portfolios: record your purchases with date, quantity and price, sell all or part of them, and see value and gain or loss per currency.
+- Current prices from EODHD with your own free API key, updated once a day.
+
 ## 1.3.0 - 2026-10-15
 
 ### New
