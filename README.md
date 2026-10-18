@@ -4,19 +4,20 @@ Simple, self-hosted bookkeeping for your accounts. Each account has a currency, 
 
 ![The sign-in page](docs/images/lalira-signin.jpg)
 
-![The overview: totals per currency with their balance charts, every account with its balance and this month's money in and out, and the recurring bookings coming up](docs/images/lalira-overview.jpg)
+![The overview: everything in CHF and the totals per currency, each chart showing every account as a band in its color, and every account with its balance and this month's money in and out](docs/images/lalira-overview.jpg)
 
 ![An account: the entry row for new positions, and the list with its running balance](docs/images/lalira-account.jpg)
 
-![A portfolio: value and gain per currency, the entry row for a purchase, and the securities held and sold](docs/images/lalira-portfolio.jpg)
+![A portfolio: value and gain per currency with the value over time against what was paid, the gain per year, and the entry row for a purchase](docs/images/lalira-portfolio.jpg)
 
 - **Accounts and positions**: a date, a description and an amount (a minus means money out), typed straight into the list (dates also as digits only, like 29012016), with an optional note. The current year shows every position; older years show one 31.12. line that opens on click, or all at once, or are hidden with "Only current year".
-- **Balance charts and search**: the balance of each account and of each currency total over 1 year, 5 years or everything, with grid lines and amounts, and a search through an account's descriptions, notes, amounts and dates.
+- **Balance charts and search**: the balance of each account and of each currency total over 1 year, 5 years or everything, with grid lines and amounts, and a search through an account's descriptions, notes, amounts and dates. Every account has a color; the total charts show each account as a band in it. Click a name in the legend to hide it, and group small accounts under "Others".
+- **Main currency**: pick one in Settings to see everything converted into it, with daily exchange rates from [Frankfurter](https://frankfurter.dev) (free, no key). Amounts stay stored in their own currency.
 - **Your order**: sort the accounts on the overview by dragging a card or with the small arrows in its corners; the sidebar and every list follow.
 - **IBAN**: optional per account, checked for typos, with a copy button.
-- **Portfolios**: one row per purchase (date, quantity, price per share), sales in full or in part, and value and gain or loss per currency. Current prices come once a day from [EODHD](https://eodhd.com) with your own free API key, which also lets you search for a security by name or ISIN to fill in the row. Swiss ISINs fill in the Valor.
+- **Portfolios**: one row per purchase (date, quantity, price per share), sales in full or in part, and value and gain or loss per currency. Current prices come once a day from [EODHD](https://eodhd.com) with your own free API key, which also lets you search for a security by name or ISIN to fill in the row. Swiss ISINs fill in the Valor. A chart shows the value over time against what you paid, with the gain per year (the free key reaches a year back), and price alerts email you when a share crosses a limit.
 - **Recurring positions**: weekly, monthly, quarterly or yearly, with placeholders such as `Deposit {month}` → "Deposit October". Missed dates are booked with their own date as soon as the app is back.
-- **Email reports**: monthly, quarterly or yearly: money in and out and every booking, for the accounts you include.
+- **Email reports**: monthly, quarterly or yearly: money in and out per account (and in total in your main currency), for the accounts you include.
 - **CSV import and export**, with a preview and duplicate detection.
 - **Backups**: a daily automatic backup, downloads with an optional password, and restore from the browser. Each backup also holds every account and portfolio as a CSV file, and a safety backup is made before every update.
 - **English and German**, with separate region formats (for example English with Swiss formats: 12’480.00, 14.10.2026).

@@ -1,5 +1,16 @@
 # Release notes
 
+## 1.5.0 - 2026-10-18
+
+### New
+- Account colors: each account has its own color, and the charts on the overview show every account as a band in it.
+- A main currency: pick one in Settings to see everything converted into it, with daily exchange rates. A portfolio in several currencies can show its totals once in it.
+- Price alerts for the shares in a portfolio, by email and on the overview.
+- A portfolio's value over time: a chart with what you paid for it, and the gain per year.
+
+### Improved
+- Minor fixes and updates.
+
 ## 1.4.0 - 2026-10-16
 
 ### New
