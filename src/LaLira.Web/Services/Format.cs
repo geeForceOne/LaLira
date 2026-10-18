@@ -25,8 +25,11 @@ public static class Format
     public static string DecimalInput(decimal value) => Decimals.FormatForInput(value, C);
 
     // "+12.40%", "−3.10%"
-    public static string Percent(decimal value) =>
-        (value > 0 ? "+" : value < 0 ? "−" : "") + Math.Abs(value).ToString("0.00", C) + "%";
+    public static string Percent(decimal value) => Decimals.FormatPercent(value, C);
+
+    // The style that gives an element an account's color as --acct (app.css: --c-<key>).
+    public static string ColorVar(string color) =>
+        $"--acct:var(--c-{(AccountColors.IsKnown(color) || color == AccountColors.Others ? color : AccountColors.All[0].Key)})";
 
     public static string Date(DateOnly date) => date.ToString("d", C);
 

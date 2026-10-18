@@ -37,4 +37,20 @@ public enum NoticeKind
 {
     // Recurring bookings made late because the app wasn't running on their date.
     CaughtUp,
+
+    // Price alerts that were reached at the last price update.
+    PriceAlert,
+}
+
+// What a price alert watches.
+public enum AlertKind
+{
+    // The price per share.
+    Price,
+
+    // The gain or loss in percent of the cost.
+    GainPercent,
+
+    // Quantity times price, all held purchases together.
+    Value,
 }

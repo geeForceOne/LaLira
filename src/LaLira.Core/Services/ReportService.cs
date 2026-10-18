@@ -16,7 +16,7 @@ public sealed record ReportView(int Id, ReportPeriod Period, bool IsActive, Date
 // the last few periods are sent, so nobody gets a flood.
 public sealed class ReportService(
     IDbContextFactory<AppDbContext> dbFactory, SettingsService settings, UserClock clock, EmailSender sender,
-    EmailSettingsService emailSettings, ILogger<ReportService> logger)
+    EmailSettingsService emailSettings, ExchangeRateService rates, ILogger<ReportService> logger)
 {
     public const int MaxCatchUp = 3;
     public static readonly TimeSpan RetryDelay = TimeSpan.FromHours(1);
@@ -174,8 +174,21 @@ public sealed class ReportService(
             return new ReportAccount(a.Name, a.Currency, a.ShowDecimals, start, balance, openedInPeriod, lines);
         }).ToList();
 
+        // With a main currency, the period's money in and out at the rate of its last month.
+        ReportTotal? total = null;
+        if (report.Count > 0 && await rates.TableAsync(userId, ct) is { } table)
+        {
+            var month = new DateOnly(range.End.Year, range.End.Month, 1);
+            var today = await clock.TodayAsync(userId, ct);
+            long? Convert(long cents, string currency) =>
+                month >= new DateOnly(today.Year, today.Month, 1) ? table.Convert(cents, currency) : table.Convert(cents, currency, month);
+            var converted = report.Where(a => table.Has(a.Currency)).ToList();
+            total = new ReportTotal(table.MainCurrency, converted.Sum(a => Convert(a.In, a.Currency) ?? 0), converted.Sum(a => Convert(a.Out, a.Currency) ?? 0),
+                report.Select(a => a.Currency).Distinct().Where(c => !table.Has(c)).Order().ToList());
+        }
+
         var publicUrl = (await emailSettings.GetAsync(ct)).PublicUrl;
-        var message = ReportEmail.Build(t, user.ShownName, period, range, report, publicUrl);
+        var message = ReportEmail.Build(t, user.ShownName, period, range, report, publicUrl, total);
         await sender.SendAsync(user.Email, user.ShownName, message, null, ct);
         logger.LogInformation("Sent {Period} report for {Start}..{End} to user {UserId}", period, range.Start, range.End, userId);
         return user.Email;

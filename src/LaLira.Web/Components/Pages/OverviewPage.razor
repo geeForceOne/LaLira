@@ -5,6 +5,7 @@
 @inject RecurringService Recurring
 @inject SettingsService Settings
 @inject PortfolioService Portfolios
+@inject IJSRuntime JS
 
 <PageTitle>@T["Overview"] · @AppInfo.Name</PageTitle>
 
@@ -21,6 +22,18 @@
             <button type="button" class="btn btn-ghost btn-sm" @onclick="NewPortfolioAsync"><Icon Name="plus" Size="15" /> @T["New portfolio"]</button>
         </div>
     }
+    else if (_view is not null && (_view.Main?.MonthEnds.Count > 1 || _view.Totals.Any(t => t.MonthEnds.Count > 1)))
+    {
+        @* One period for every chart on the page, remembered; charts are hidden on phones, so is this. *@
+        <div class="page-actions overview-range">
+            <div class="bchart-range" role="group" aria-label="@T["Period"]">
+                @foreach (var (months, label) in BalanceChart.Ranges)
+                {
+                    <button type="button" aria-pressed="@(_months == months ? "true" : "false")" @onclick="() => SetMonthsAsync(months)">@T[label]</button>
+                }
+            </div>
+        </div>
+    }
 </div>
 
 @if (_view is null)
@@ -34,7 +47,15 @@ else
         <div class="notice notice-info notice-row" role="status">
             <Icon Name="clock" />
             <span>@T.Plural(_view.CaughtUp, "{0} recurring booking was made late, with its own date, because the app wasn't running on that day.", "{0} recurring bookings were made late, with their own dates, because the app wasn't running on those days.")</span>
-            <button type="button" class="btn btn-ghost btn-sm" @onclick="DismissCaughtUpAsync">@T["OK"]</button>
+            <button type="button" class="btn btn-ghost btn-sm" @onclick="() => DismissAsync(NoticeKind.CaughtUp)">@T["OK"]</button>
+        </div>
+    }
+    @if (_view.AlertsReached > 0)
+    {
+        <div class="notice notice-info notice-row" role="status">
+            <Icon Name="bell" />
+            <span>@T.Plural(_view.AlertsReached, "{0} price alert was reached at the last price update. The details are in your email and on the portfolio page.", "{0} price alerts were reached at the last price update. The details are in your email and on the portfolio page.")</span>
+            <button type="button" class="btn btn-ghost btn-sm" @onclick="() => DismissAsync(NoticeKind.PriceAlert)">@T["OK"]</button>
         </div>
     }
 
@@ -53,6 +74,40 @@ else
     }
     else
     {
+        @if (_view.Main is { } m)
+        {
+            var mainDecimals = _view.Accounts.All(a => a.Account.ShowDecimals);
+            <section class="totals totals-main" aria-label="@T["Total in {0}", m.Currency]">
+                <div class="total @(m.MonthEnds.Count > 1 ? "with-chart" : "")">
+                    <div class="total-figures">
+                        <div class="total-label">@T["Total in {0}", m.Currency]</div>
+                        <div class="total-value num @(m.Balance < 0 ? "neg" : "")">@Format.Money(m.Balance, mainDecimals)</div>
+                        @if (m.HasPortfolios)
+                        {
+                            <div class="total-split">
+                                <span><span class="flow-label">@T["Accounts"]</span> <span class="num">@Format.Money(m.Accounts, mainDecimals)</span></span>
+                                <span><span class="flow-label">@T["Portfolios"]</span> <span class="num">@Format.Money(m.Portfolios, mainDecimals)</span></span>
+                            </div>
+                        }
+                        <div class="total-flow">
+                            <span title="@T["Money in this month"]"><span class="flow-label">@T["In"]</span> <span class="num">@Format.Money(m.MonthIn, mainDecimals)</span></span>
+                            <span title="@T["Money out this month"]"><span class="flow-label">@T["Out"]</span> <span class="num">@Format.Money(m.MonthOut, mainDecimals)</span></span>
+                        </div>
+                        <div class="total-note muted small">
+                            @if (m.RatesDate is { } rd)
+                            {
+                                <span>@T["Exchange rates of {0}", Format.Date(rd)]</span>
+                            }
+                            @if (m.Missing.Count > 0)
+                            {
+                                <span>@T["Without {0}: no exchange rate yet.", string.Join(", ", m.Missing)]</span>
+                            }
+                        </div>
+                    </div>
+                    <BalanceChart Points="m.MonthEnds" Bands="Shown(m.Bands)" ShowDecimals="mainDecimals" Months="_months" OnToggleBand="ToggleBandAsync" />
+                </div>
+            </section>
+        }
         <section class="totals" aria-label="@T["Totals"]">
             @foreach (var t in _view.Totals)
             {
@@ -66,7 +121,7 @@ else
                             <span title="@T["Money out this month"]"><span class="flow-label">@T["Out"]</span> <span class="num">@Format.Money(t.MonthOut, decimals)</span></span>
                         </div>
                     </div>
-                    <BalanceChart Points="t.MonthEnds" ShowDecimals="decimals" />
+                    <BalanceChart Points="t.MonthEnds" Bands="Shown(t.Bands)" ShowDecimals="decimals" Months="_months" OnToggleBand="ToggleBandAsync" />
                 </div>
             }
         </section>
@@ -94,21 +149,19 @@ else
                          @ondragover:preventDefault="true" @ondrop:preventDefault="true" @ondragend="DragEndAsync">
                         <a class="acct-card" href="@($"accounts/{c.Account.Id}")" draggable="true">
                             <div class="acct-top">
-                                <span class="acct-name"><span class="acct-icon"><Icon Name="@c.Account.Icon" Size="16" /></span>@c.Account.Name</span>
+                                <span class="acct-name"><span class="acct-icon" style="@Format.ColorVar(c.Account.Color)"><Icon Name="@c.Account.Icon" Size="16" /></span>@c.Account.Name</span>
                                 <span class="code">@c.Account.Currency</span>
                             </div>
-                            <div class="acct-balance num @(c.BalanceToday < 0 ? "neg" : "")">@Format.Money(c.BalanceToday, c.Account)</div>
-                            <Sparkline Values="c.MonthEndBalances" Label="@T["Balance over the last 12 months"]" />
+                            <div class="acct-mid">
+                                <div class="acct-balance num @(c.BalanceToday < 0 ? "neg" : "")">@Format.Money(c.BalanceToday, c.Account)</div>
+                                <Sparkline Values="c.MonthEndBalances" Color="@c.Account.Color" Label="@T["Balance over the last 12 months"]" />
+                            </div>
                             <div class="acct-flow">
                                 <span><span class="flow-label">@T["In"]</span> <span class="num">@Format.Money(c.MonthIn, c.Account)</span></span>
                                 <span><span class="flow-label">@T["Out"]</span> <span class="num">@Format.Money(c.MonthOut, c.Account)</span></span>
-                                @if (c.UpcomingCount > 0)
-                                {
-                                    <span class="tag" title="@T["Positions dated after today"]">@T.Plural(c.UpcomingCount, "{0} upcoming", "{0} upcoming")</span>
-                                }
                             </div>
                         </a>
-                        @* Move earlier (bottom left) and later (bottom right); on phones the cards stack, so the arrows point up and down. *@
+                        @* Move earlier and later, at the right of the In/Out row; on phones the cards stack, so the arrows point up and down. *@
                         @if (index > 0)
                         {
                             <button type="button" class="acct-arrow acct-arrow-earlier" title="@T["Move {0} earlier", c.Account.Name]"
@@ -170,13 +223,45 @@ else
     private IReadOnlyList<UpcomingBooking> _upcoming = [];
     private IReadOnlyList<PortfolioCard> _portfolios = [];
     private AccountDialog _accountDialog = default!;
+    private int _months = OverviewService.DefaultMonths;
+
+    // The bands switched off from a legend, by key; changed here first so a click shows at once.
+    private HashSet<string> _hidden = [];
+
+    private DotNetObjectReference<OverviewPage>? _self;
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _self = DotNetObjectReference.Create(this);
+        try { await JS.InvokeVoidAsync("lalira.onVisible", _self); } catch (JSException) { } catch (JSDisconnectedException) { }
+    }
+
+    // Back on this tab: everything loaded again, as it may have changed elsewhere (another tab,
+    // the daily price update). Not while something is being saved or a card dragged.
+    [JSInvokable]
+    public async Task OnVisibleAsync()
+    {
+        if (Busy || _dragId is not null) return;
+        await LoadAsync();
+        await Ui.RefreshAccountsAsync();
+        StateHasChanged();
+    }
+
+    public override void Dispose()
+    {
+        _self?.Dispose();
+        base.Dispose();
+    }
 
     private async Task LoadAsync()
     {
         var userId = await UserIdAsync();
         _view = await Overview.GetAsync(userId, PageToken);
+        _months = _view.Months;
+        _hidden = (_view.Main?.Bands ?? []).Concat(_view.Totals.SelectMany(t => t.Bands)).Where(b => b.Hidden).Select(b => b.Key).ToHashSet();
         _cards = _view.Accounts.ToList();
         _upcoming = await Recurring.UpcomingAsync(userId, 31, 8, PageToken);
         _portfolios = await Portfolios.CardsAsync(userId, PageToken);
@@ -202,7 +287,8 @@ else
         var regional = new System.Globalization.RegionInfo(T.Format.Name).ISOCurrencySymbol;
         var currency = _view?.Accounts.FirstOrDefault()?.Account.Currency ?? (Currencies.IsKnown(regional) ? regional : "CHF");
         AccountInfo? created = null;
-        var ok = await _accountDialog.AskAsync(null, today, currency, async input =>
+        var color = AccountColors.Next(_cards.Select(c => (string?)c.Account.Color));
+        var ok = await _accountDialog.AskAsync(null, today, currency, defaultColor: color, save: async input =>
         {
             try
             {
@@ -261,9 +347,28 @@ else
             await LoadAsync();
     }
 
-    private async Task DismissCaughtUpAsync()
+    private IReadOnlyList<ChartBand> Shown(IReadOnlyList<ChartBand> bands) =>
+        bands.Select(b => b with { Hidden = _hidden.Contains(b.Key) }).ToList();
+
+    private async Task ToggleBandAsync(string key)
     {
-        await Overview.DismissCaughtUpAsync(await UserIdAsync(), PageToken);
+        var hide = _hidden.Add(key);
+        if (!hide)
+            _hidden.Remove(key);
+        var userId = await UserIdAsync();
+        await RunAsync(() => Overview.SetHiddenAsync(userId, key, hide, PageToken));
+    }
+
+    private async Task SetMonthsAsync(int months)
+    {
+        _months = months;
+        var userId = await UserIdAsync();
+        await RunAsync(() => Overview.SetMonthsAsync(userId, months, PageToken));
+    }
+
+    private async Task DismissAsync(NoticeKind kind)
+    {
+        await Overview.DismissAsync(await UserIdAsync(), kind, PageToken);
         await LoadAsync();
     }
 }

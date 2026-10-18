@@ -39,13 +39,19 @@ public static class Endpoints
             var userId = await settings.FindUserByHomepageTokenAsync(http.Request.Headers["X-API-Key"].FirstOrDefault(), http.RequestAborted);
             if (userId is null)
                 return Results.Unauthorized();
-            var (today, flows) = await overview.MonthFlowAsync(userId, http.RequestAborted);
+            var (today, flows, total) = await overview.MonthFlowAsync(userId, http.RequestAborted);
             var result = new Dictionary<string, object>
             {
                 ["month"] = today.ToString("yyyy-MM", CultureInfo.InvariantCulture),
             };
             foreach (var f in flows)
                 result[f.Currency] = new { @in = Money.ToDecimal(f.In), @out = Money.ToDecimal(-f.Out), net = Money.ToDecimal(f.In + f.Out) };
+            // Everything in the main currency, when one is set in Settings.
+            if (total is not null)
+                result["total"] = new
+                {
+                    currency = total.Currency, @in = Money.ToDecimal(total.In), @out = Money.ToDecimal(-total.Out), net = Money.ToDecimal(total.In + total.Out),
+                };
             return Results.Json(result);
         });
 

@@ -47,6 +47,22 @@
     --bad-soft: rgba(239, 122, 111, 0.12);
     --info-soft: rgba(126, 166, 216, 0.10);
 
+    /* Account colors (AccountColors), for icons, small charts and the stacked total charts. */
+    --c-blue: #7ea6d8;
+    --c-teal: #4fc1b6;
+    --c-green: #7cc785;
+    --c-gold: #e3bd55;
+    --c-orange: #ee9d5c;
+    --c-pink: #e58cbd;
+    --c-purple: #b497e6;
+    --c-indigo: #8f9df0;
+    --c-cyan: #66c4e6;
+    --c-lime: #bccf6a;
+    --c-brown: #c79d7b;
+    --c-slate: #9cabbb;
+    --c-others: #5d646c;
+    --band-opacity: 0.5;
+
     --focus: #9fd0ea;
     --overlay: rgba(4, 8, 12, 0.66);
     --lift: 0 18px 50px rgba(0, 0, 0, 0.5);
@@ -105,6 +121,21 @@
     --bad: #b42318;
     --bad-soft: rgba(180, 35, 24, 0.07);
     --info-soft: rgba(45, 91, 146, 0.06);
+
+    --c-blue: #2d5b92;
+    --c-teal: #12837a;
+    --c-green: #2f8740;
+    --c-gold: #a47809;
+    --c-orange: #c25f12;
+    --c-pink: #b33d84;
+    --c-purple: #7650bf;
+    --c-indigo: #4656c0;
+    --c-cyan: #0b7ca4;
+    --c-lime: #657f12;
+    --c-brown: #8c5b36;
+    --c-slate: #5c6979;
+    --c-others: #b9bec4;
+    --band-opacity: 0.42;
 
     --focus: #2d5b92;
     --overlay: rgba(22, 32, 43, 0.45);
@@ -596,6 +627,10 @@ td.num, th.num, .num.right { text-align: right; }
 .total.with-chart { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: stretch; }
 .total.with-chart .total-figures { flex: 0 0 auto; align-self: center; }
 .total.with-chart .bchart { flex: 1 1 320px; }
+/* The main-currency total: its own row above the per-currency ones. */
+.totals-main { grid-template-columns: minmax(0, 1fr); margin-bottom: 14px; }
+.total-split { display: flex; gap: 18px; margin-top: 6px; font-size: var(--t-sm); color: var(--ink-soft); flex-wrap: wrap; }
+.total-note { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
 .flow-label { color: var(--pencil); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; margin-right: 2px; }
 
 .acct-grid {
@@ -618,11 +653,11 @@ td.num, th.num, .num.right { text-align: right; }
 /* Sorting: drag a card, or use the small arrows in its bottom corners (earlier / later). They show on hover
    and keyboard focus, always on touch screens; the card keeps a row free for them so nothing shifts. */
 .acct-slot { position: relative; display: flex; flex-direction: column; }
-.acct-slot > .acct-card { flex: 1; padding-bottom: 30px; }
+.acct-slot > .acct-card { flex: 1; }
 .acct-slot.dragging .acct-card { opacity: 0.45; border-style: dashed; }
 .acct-arrow {
     position: absolute;
-    bottom: 6px;
+    bottom: 11px;
     display: grid;
     place-items: center;
     width: 24px;
@@ -636,8 +671,10 @@ td.num, th.num, .num.right { text-align: right; }
     opacity: 0;
     transition: opacity 120ms;
 }
-.acct-arrow-earlier { left: 10px; }
+/* Both at the right end of the In/Out row; the row keeps room for them. */
+.acct-arrow-earlier { right: 38px; }
 .acct-arrow-later { right: 10px; }
+.acct-slot .acct-flow { padding-right: 60px; }
 .acct-arrow:hover { color: var(--accent); background: var(--accent-soft); }
 .acct-slot:hover .acct-arrow, .acct-slot:focus-within .acct-arrow { opacity: 1; }
 @media (pointer: coarse) {
@@ -658,13 +695,15 @@ td.num, th.num, .num.right { text-align: right; }
     width: 28px;
     height: 28px;
     border-radius: var(--r-md);
-    background: var(--accent-soft);
-    color: var(--accent);
+    background: color-mix(in srgb, var(--acct, var(--accent)) 15%, transparent);
+    color: var(--acct, var(--accent));
 }
 .acct-icon-lg { width: 38px; height: 38px; margin-right: 12px; vertical-align: -6px; }
 .account-title { display: flex; align-items: center; }
 .side-accounts .icon { color: var(--pencil); }
 .side-accounts a.active .icon { color: var(--accent); }
+.side-accounts .side-account-icon { display: inline-grid; color: var(--acct); }
+.side-accounts .side-account-icon .icon, .side-accounts a.active .side-account-icon .icon { color: inherit; }
 .side-accounts a { gap: 8px; }
 .side-account-name { flex: 1; }
 
@@ -683,18 +722,34 @@ td.num, th.num, .num.right { text-align: right; }
 }
 .icon-pick button:hover { border-color: var(--accent); color: var(--ink); }
 .icon-pick button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+/* With a color picked, the icons show in it. */
+.icon-pick.tinted button.on { border-color: var(--acct); background: color-mix(in srgb, var(--acct) 15%, transparent); color: var(--acct); box-shadow: 0 0 0 1px var(--acct) inset; }
+
+/* The account color picker: swatches, the chosen one ringed. */
+.color-pick { display: flex; flex-wrap: wrap; gap: 8px; }
+.color-pick button {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--acct);
+    cursor: pointer;
+    box-shadow: 0 0 0 2px var(--sheet), 0 0 0 3px transparent;
+}
+.color-pick button:hover { box-shadow: 0 0 0 2px var(--sheet), 0 0 0 3px var(--rule-strong); }
+.color-pick button.on { box-shadow: 0 0 0 2px var(--sheet), 0 0 0 4px var(--acct); }
 .acct-balance { font-size: var(--t-2xl); font-weight: 500; letter-spacing: -0.015em; font-variant-numeric: tabular-nums; }
+/* The balance and its small chart share a row. */
+.acct-mid { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.acct-mid .acct-balance { flex: none; }
+.acct-mid .sparkline { flex: 1 1 auto; min-width: 48px; }
 .acct-flow { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: var(--t-sm); color: var(--ink-soft); }
 .acct-flow .tag { margin-left: auto; }
 
-.spark { display: grid; grid-template-columns: minmax(0, 1fr) var(--spark-gutter, 0); gap: 8px; }
-.sparkline { display: block; width: 100%; height: 44px; overflow: visible; }
-.spark-grid { stroke: var(--rule); stroke-width: 1; vector-effect: non-scaling-stroke; }
-:root[data-theme="light"] .spark-grid { stroke: var(--rule-strong); }
-.spark-yaxis { position: relative; color: var(--pencil); font-size: 10px; font-variant-numeric: tabular-nums; }
-.spark-yaxis span { position: absolute; right: 0; transform: translateY(-50%); line-height: 1; white-space: nowrap; }
-.spark-area { fill: var(--accent-soft); stroke: none; }
-.spark-line { fill: none; stroke: var(--accent); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
+.sparkline { display: block; width: 100%; height: 28px; overflow: visible; }
+.spark-area { fill: color-mix(in srgb, var(--acct, var(--accent)) 16%, transparent); stroke: none; }
+.spark-line { fill: none; stroke: var(--acct, var(--accent)); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
 .spark-zero { stroke: var(--rule-strong); stroke-dasharray: 3 3; stroke-width: 1; vector-effect: non-scaling-stroke; }
 
 /* ---------- Tables ---------- */
@@ -751,6 +806,8 @@ td.num, th.num, .num.right { text-align: right; }
 .balance-sides { display: grid; grid-template-columns: repeat(2, max-content); gap: 10px 28px; align-content: center; }
 
 .bchart { display: grid; grid-template-columns: minmax(0, 1fr) var(--bchart-gutter, 0); grid-template-rows: auto minmax(88px, 1fr) auto; gap: 4px 10px; min-width: 0; }
+/* The page sets the period: no buttons above the plot. */
+.bchart.no-range { grid-template-rows: minmax(88px, 1fr) auto; }
 .bchart-top { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
 .bchart-range { display: inline-flex; gap: 2px; padding: 2px; background: var(--sheet-2); border: 1px solid var(--rule); border-radius: var(--r-md); }
 .bchart-range button { border: 0; border-radius: var(--r-sm); background: none; color: var(--pencil); font: 500 var(--t-xs) var(--font-ui); padding: 3px 9px; cursor: pointer; }
@@ -758,8 +815,24 @@ td.num, th.num, .num.right { text-align: right; }
 .bchart-range button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .bchart-plot { position: relative; min-width: 0; margin-right: 5px; cursor: crosshair; touch-action: pan-y; }
 .bchart-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.bchart-area { fill: var(--accent-soft); stroke: none; }
-.bchart-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.bchart-area { fill: color-mix(in srgb, var(--acct, var(--accent)) 14%, transparent); stroke: none; }
+.bchart-line { fill: none; stroke: var(--acct, var(--accent)); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+/* Stacked: a band per account in its color, the total as an ink line on top. */
+.bchart-band { fill: var(--acct); fill-opacity: var(--band-opacity); stroke: var(--sheet); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.bchart.stacked .bchart-line { stroke: var(--ink); stroke-width: 1.5; }
+.bchart.stacked .bchart-end, .bchart.stacked .bchart-dot { background: var(--ink); }
+.bchart-legend { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; color: var(--ink-soft); font-size: var(--t-xs); }
+.bchart-legend span, .bchart-legend button, .bchart-tip .tip-row { display: inline-flex; align-items: center; gap: 6px; }
+/* A legend entry switches its band off and on again. */
+.bchart-legend button { border: 0; padding: 1px 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.bchart-legend button:hover { color: var(--ink); }
+.bchart-legend button[aria-pressed="false"] { color: var(--pencil); text-decoration: line-through; }
+.bchart-legend button[aria-pressed="false"] i { background: none; box-shadow: 0 0 0 1px var(--acct) inset; }
+.bchart-cost { fill: none; stroke: var(--ink-soft); stroke-width: 1.5; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.bchart-legend i, .bchart-tip i { width: 8px; height: 8px; border-radius: 50%; background: var(--acct); flex: none; }
+.bchart-tip .tip-rows { display: grid; grid-template-columns: auto auto; gap: 2px 14px; margin-top: 3px; }
+.bchart-tip .tip-rows .num { text-align: right; }
+.bchart-tip .tip-head { display: flex; justify-content: space-between; gap: 14px; font-weight: 600; }
 .bchart-grid { stroke: var(--rule); stroke-width: 1; vector-effect: non-scaling-stroke; }
 :root[data-theme="light"] .bchart-grid { stroke: var(--rule-strong); }
 .bchart-yaxis { position: relative; color: var(--pencil); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
@@ -776,10 +849,11 @@ td.num, th.num, .num.right { text-align: right; }
     pointer-events: none;
 }
 .bchart-cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--rule-strong); pointer-events: none; }
+/* Fixed to the window, placed by lalira.balanceChart, so the box around the chart doesn't clip it. */
 .bchart-tip {
-    position: absolute;
-    top: -6px;
-    transform: translate(-50%, -100%);
+    position: fixed;
+    top: 0;
+    left: 0;
     padding: 3px 8px;
     background: var(--sheet-3);
     border: 1px solid var(--rule-strong);
@@ -789,7 +863,8 @@ td.num, th.num, .num.right { text-align: right; }
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
     pointer-events: none;
-    z-index: 3;
+    z-index: 60;
+    box-shadow: var(--lift-sm);
 }
 .bchart-axis { grid-column: 1; display: flex; justify-content: space-between; color: var(--pencil); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
 .iban { display: inline-flex; align-items: center; gap: 2px; font-family: var(--font-code); font-size: var(--t-sm); color: var(--ink-soft); }
@@ -884,6 +959,27 @@ td.num .holding-ids { font-family: inherit; }
 .holdings .col-date { width: 110px; }
 .portfolio-line { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
 .portfolio-totals .total-flow + .total-flow { margin-top: 4px; }
+.total-converted { margin-top: 4px; color: var(--ink-soft); font-size: var(--t-sm); }
+/* The gain of each year under a portfolio's figures. */
+.year-gains { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 8px; font-size: var(--t-xs); color: var(--ink-soft); }
+.year-gains .flow-label { margin-right: 4px; }
+.portfolio-totals .total.with-chart { grid-column: 1 / -1; }
+.portfolio-totals:has(.with-chart) { grid-template-columns: minmax(0, 1fr); }
+.switch-inline { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: var(--t-sm); cursor: pointer; }
+.field-narrow { max-width: 360px; }
+
+/* Price alerts: a bell per held row, the alerts inline below it. */
+.holdings .col-bell { width: 44px; padding-left: 0; padding-right: 4px; text-align: right; }
+.holdings .bell { color: var(--pencil); }
+.holdings .bell.on { color: var(--accent); }
+.alert-panel { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+.alert-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.alert-list li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.alert-list li .icon { color: var(--accent); }
+.alert-list li .btn { margin-left: auto; }
+.alert-entry { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.alert-entry .select { width: auto; }
+.alert-entry .input { width: 120px; }
 /* A section head's hint and small buttons, on the right. */
 .section-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 12px; }
 
@@ -1264,6 +1360,7 @@ td.num .holding-ids { font-family: inherit; }
     .page-actions { width: 100%; }
     .page-actions .btn-primary { flex: 1; }
     .total-value { font-size: var(--t-2xl); }
+    .overview-range { display: none; }
     .balance-strip { padding: 14px 16px; gap: 12px 24px; }
     .balance-main { flex-basis: 100%; }
     .bchart { display: none; }

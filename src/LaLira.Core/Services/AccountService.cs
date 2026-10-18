@@ -7,10 +7,12 @@ namespace LaLira.Core.Services;
 
 public sealed record AccountInfo(
     int Id, string Name, string Currency, long OpeningBalance, DateOnly OpeningDate,
-    bool ShowDecimals, bool IncludeInReports, int SortOrder, string Icon, string? Iban = null, bool OnlyCurrentYear = false);
+    bool ShowDecimals, bool IncludeInReports, int SortOrder, string Icon, string? Iban = null, bool OnlyCurrentYear = false,
+    string Color = "blue", bool InOthers = false, bool HiddenInTotals = false);
 
 public sealed record AccountInput(
-    string Name, string Currency, long OpeningBalance, DateOnly OpeningDate, bool ShowDecimals, bool IncludeInReports, string Icon, string? Iban = null);
+    string Name, string Currency, long OpeningBalance, DateOnly OpeningDate, bool ShowDecimals, bool IncludeInReports, string Icon, string? Iban = null,
+    string? Color = null, bool InOthers = false);
 
 // Ledger accounts: create, change, delete. Every call is scoped to the person who owns them.
 public sealed class AccountService(IDbContextFactory<AppDbContext> dbFactory)
@@ -18,6 +20,7 @@ public sealed class AccountService(IDbContextFactory<AppDbContext> dbFactory)
     public async Task<IReadOnlyList<AccountInfo>> ListAsync(string userId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
+        await EnsureColorsAsync(db, userId, ct);
         return await db.Accounts.AsNoTracking().Where(a => a.UserId == userId)
             .OrderBy(a => a.SortOrder).ThenBy(a => a.Name)
             .Select(a => Info(a)).ToListAsync(ct);
@@ -26,6 +29,7 @@ public sealed class AccountService(IDbContextFactory<AppDbContext> dbFactory)
     public async Task<AccountInfo> GetAsync(string userId, int accountId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
+        await EnsureColorsAsync(db, userId, ct);
         return await db.Accounts.AsNoTracking().Where(a => a.Id == accountId && a.UserId == userId)
             .Select(a => Info(a)).FirstOrDefaultAsync(ct) ?? throw new NotFoundException("That account no longer exists.");
     }
@@ -35,6 +39,7 @@ public sealed class AccountService(IDbContextFactory<AppDbContext> dbFactory)
         var clean = Validate(input);
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var order = await db.Accounts.Where(a => a.UserId == userId).Select(a => (int?)a.SortOrder).MaxAsync(ct) ?? 0;
+        var used = await db.Accounts.Where(a => a.UserId == userId).OrderBy(a => a.SortOrder).Select(a => a.Color).ToListAsync(ct);
         var account = new Account
         {
             UserId = userId,
@@ -46,6 +51,8 @@ public sealed class AccountService(IDbContextFactory<AppDbContext> dbFactory)
             IncludeInReports = clean.IncludeInReports,
             Icon = clean.Icon,
             Iban = clean.Iban,
+            Color = clean.Color ?? AccountColors.Next(used),
+            InOthers = clean.InOthers,
             SortOrder = order + 1,
         };
         db.Accounts.Add(account);
@@ -76,6 +83,8 @@ public sealed class AccountService(IDbContextFactory<AppDbContext> dbFactory)
         account.IncludeInReports = clean.IncludeInReports;
         account.Icon = clean.Icon;
         account.Iban = clean.Iban;
+        account.Color = clean.Color ?? account.Color;
+        account.InOthers = clean.InOthers;
         await db.SaveChangesAsync(ct);
         return Info(account);
     }
@@ -127,9 +136,25 @@ public sealed class AccountService(IDbContextFactory<AppDbContext> dbFactory)
         var iban = Ledger.Iban.Normalize(input.Iban);
         if (iban.Length > 0 && !Ledger.Iban.IsValid(iban))
             throw new InputException("That IBAN isn't valid. Check it for typos.");
-        return input with { Name = name, Currency = currency, Icon = AccountIcons.Normalize(input.Icon), Iban = iban.Length == 0 ? null : iban };
+        return input with
+        {
+            Name = name, Currency = currency, Icon = AccountIcons.Normalize(input.Icon), Iban = iban.Length == 0 ? null : iban,
+            Color = AccountColors.IsKnown(input.Color) ? input.Color : null,
+        };
+    }
+
+    // Accounts from before colors existed get the next free ones, in their order.
+    private static async Task EnsureColorsAsync(AppDbContext db, string userId, CancellationToken ct)
+    {
+        if (!await db.Accounts.AnyAsync(a => a.UserId == userId && a.Color == null, ct))
+            return;
+        var all = await db.Accounts.Where(a => a.UserId == userId).OrderBy(a => a.SortOrder).ThenBy(a => a.Id).ToListAsync(ct);
+        foreach (var a in all.Where(a => !AccountColors.IsKnown(a.Color)))
+            a.Color = AccountColors.Next(all.Select(x => x.Color));
+        await db.SaveChangesAsync(ct);
     }
 
     private static AccountInfo Info(Account a) =>
-        new(a.Id, a.Name, a.Currency, a.OpeningBalance, a.OpeningDate, a.ShowDecimals, a.IncludeInReports, a.SortOrder, a.Icon, a.Iban, a.OnlyCurrentYear);
+        new(a.Id, a.Name, a.Currency, a.OpeningBalance, a.OpeningDate, a.ShowDecimals, a.IncludeInReports, a.SortOrder, a.Icon, a.Iban, a.OnlyCurrentYear,
+            a.Color ?? AccountColors.All[0].Key, a.InOthers, a.HiddenInTotals);
 }

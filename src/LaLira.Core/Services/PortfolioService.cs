@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LaLira.Core.Services;
 
-public sealed record PortfolioInfo(int Id, string Name, int SortOrder);
+public sealed record PortfolioInfo(int Id, string Name, int SortOrder, bool InOthers = false, bool HiddenInTotals = false, bool ShowInMainCurrency = false);
 
 public sealed record HoldingInput(
     string Name, string? Isin, string? Valor, string Currency, DateOnly BuyDate, decimal Quantity, decimal BuyPrice,
@@ -38,19 +38,60 @@ public sealed record PortfolioTotal(string Currency, long Cost, long Value, long
     public decimal? UnrealizedPercent => PricedCost != 0 ? Math.Round(Unrealized * 100m / PricedCost, 2) : null;
 }
 
-public sealed record PortfolioView(PortfolioInfo Portfolio, IReadOnlyList<HoldingView> Holdings, IReadOnlyList<PortfolioTotal> Totals, DateOnly Today);
+// All currencies' totals together in the main currency, at the newest rates. Complete: every held
+// row has a price and every currency a rate.
+public sealed record PortfolioMainTotal(string Currency, long Value, long Cost, long Unrealized, long PricedCost, long Realized, bool Complete, DateOnly? RatesDate)
+{
+    public decimal? UnrealizedPercent => PricedCost != 0 ? Math.Round(Unrealized * 100m / PricedCost, 2) : null;
+}
 
-public sealed record PortfolioCard(PortfolioInfo Portfolio, IReadOnlyList<PortfolioTotal> Totals, int HeldCount);
+// What was held at the end of a month, at that month's close, and what it had cost.
+public sealed record PortfolioMonth(DateOnly Month, long Value, long Cost);
+
+// What was bought in a year (at cost) and what sales gained or lost.
+public sealed record YearFlow(int Year, long Bought, long Realized);
+
+public sealed record YearGain(int Year, long Gain, decimal? Percent);
+
+// A portfolio's value over time in one currency, from the first purchase to this month. Rows
+// without a close for a month count at what they cost.
+public sealed record PortfolioHistory(string Currency, IReadOnlyList<PortfolioMonth> Months, IReadOnlyList<YearFlow> Flows)
+{
+    // Each year's gain: the change of the unrealized gain plus what sales realized, in percent of
+    // what was there at the start plus what was bought in the year.
+    public IReadOnlyList<YearGain> Years => Months.GroupBy(m => m.Month.Year).Select(g =>
+    {
+        var end = g.Last();
+        var start = Months.LastOrDefault(m => m.Month.Year < g.Key);
+        var flow = Flows.FirstOrDefault(f => f.Year == g.Key);
+        var gain = end.Value - end.Cost - (start is null ? 0 : start.Value - start.Cost) + (flow?.Realized ?? 0);
+        var basis = (start?.Value ?? 0) + (flow?.Bought ?? 0);
+        return new YearGain(g.Key, gain, basis > 0 ? Math.Round(gain * 100m / basis, 1) : null);
+    }).ToList();
+}
+
+public sealed record PortfolioView(PortfolioInfo Portfolio, IReadOnlyList<HoldingView> Holdings, IReadOnlyList<PortfolioTotal> Totals, DateOnly Today,
+    IReadOnlyList<PortfolioHistory>? History = null, PortfolioMainTotal? Main = null, PortfolioHistory? MainHistory = null)
+{
+    // Totals once in the main currency instead of per currency, as the portfolio asks for.
+    public bool ShowMain => Main is not null && Portfolio.ShowInMainCurrency && Totals.Count(t => t.HeldCount > 0) > 1;
+}
+
+public sealed record PortfolioCard(PortfolioInfo Portfolio, IReadOnlyList<PortfolioTotal> Totals, int HeldCount, PortfolioMainTotal? Main = null)
+{
+    // One line in the main currency instead of one per currency, as the portfolio asks for.
+    public bool ShowMain => Main is not null && Portfolio.ShowInMainCurrency && Totals.Count(t => t.HeldCount > 0) > 1;
+}
 
 // Portfolios and their holdings. Every call is scoped to the person who owns them.
-public sealed class PortfolioService(IDbContextFactory<AppDbContext> dbFactory, UserClock clock)
+public sealed class PortfolioService(IDbContextFactory<AppDbContext> dbFactory, UserClock clock, ExchangeRateService? rates = null)
 {
     public async Task<IReadOnlyList<PortfolioInfo>> ListAsync(string userId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         return await db.Portfolios.AsNoTracking().Where(p => p.UserId == userId)
             .OrderBy(p => p.SortOrder).ThenBy(p => p.Name)
-            .Select(p => new PortfolioInfo(p.Id, p.Name, p.SortOrder)).ToListAsync(ct);
+            .Select(p => new PortfolioInfo(p.Id, p.Name, p.SortOrder, p.InOthers, p.HiddenInTotals, p.ShowInMainCurrency)).ToListAsync(ct);
     }
 
     // Every portfolio with its totals, for the overview.
@@ -60,10 +101,12 @@ public sealed class PortfolioService(IDbContextFactory<AppDbContext> dbFactory, 
         var portfolios = await db.Portfolios.AsNoTracking().Where(p => p.UserId == userId)
             .OrderBy(p => p.SortOrder).ThenBy(p => p.Name).Include(p => p.Holdings).ToListAsync(ct);
         var prices = await PricesAsync(db, userId, ct);
+        var table = rates is null ? null : await rates.TableAsync(userId, ct);
         return portfolios.Select(p =>
         {
             var rows = p.Holdings.Select(h => View(h, prices)).ToList();
-            return new PortfolioCard(Info(p), Totals(rows), rows.Count(r => !r.IsSold));
+            var totals = Totals(rows);
+            return new PortfolioCard(Info(p), totals, rows.Count(r => !r.IsSold), table is null ? null : InMain(totals, table));
         }).ToList();
     }
 
@@ -78,7 +121,36 @@ public sealed class PortfolioService(IDbContextFactory<AppDbContext> dbFactory, 
         var rows = p.Holdings.Select(h => View(h, prices))
             .OrderBy(r => r.IsSold).ThenByDescending(r => r.SellDate).ThenByDescending(r => r.BuyDate).ThenBy(r => r.Name).ThenByDescending(r => r.Id)
             .ToList();
-        return new PortfolioView(Info(p), rows, Totals(rows), await clock.TodayAsync(userId, ct));
+        var today = await clock.TodayAsync(userId, ct);
+        var totals = Totals(rows);
+        var history = History(p.Holdings, await MonthPricesAsync(db, userId, ct), prices, today);
+        var table = rates is null ? null : await rates.TableAsync(userId, ct);
+        return new PortfolioView(Info(p), rows, totals, today, history,
+            table is null ? null : InMain(totals, table), table is null ? null : HistoryInMain(history, table, today));
+    }
+
+    // Every portfolio's history, for the overview's main-currency chart.
+    public async Task<IReadOnlyDictionary<int, IReadOnlyList<PortfolioHistory>>> HistoriesAsync(string userId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var portfolios = await db.Portfolios.AsNoTracking().Where(p => p.UserId == userId).Include(p => p.Holdings).ToListAsync(ct);
+        var prices = await PricesAsync(db, userId, ct);
+        var months = await MonthPricesAsync(db, userId, ct);
+        var today = await clock.TodayAsync(userId, ct);
+        return portfolios.ToDictionary(p => p.Id, p => History(p.Holdings, months, prices, today));
+    }
+
+    // The portfolio's switches for the overview charts and its totals; null leaves one as it is.
+    public async Task SetOptionsAsync(string userId, int portfolioId, bool? inOthers = null, bool? hiddenInTotals = null, bool? showInMainCurrency = null,
+        CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var p = await db.Portfolios.FirstOrDefaultAsync(x => x.Id == portfolioId && x.UserId == userId, ct)
+                ?? throw new NotFoundException("That portfolio no longer exists.");
+        p.InOthers = inOthers ?? p.InOthers;
+        p.HiddenInTotals = hiddenInTotals ?? p.HiddenInTotals;
+        p.ShowInMainCurrency = showInMainCurrency ?? p.ShowInMainCurrency;
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task<PortfolioInfo> CreateAsync(string userId, string name, CancellationToken ct = default)
@@ -120,6 +192,7 @@ public sealed class PortfolioService(IDbContextFactory<AppDbContext> dbFactory, 
         var h = new Holding { PortfolioId = portfolioId };
         Apply(h, clean);
         db.Holdings.Add(h);
+        await RefetchHistoryIfEarlierAsync(db, userId, h, ct);
         await db.SaveChangesAsync(ct);
         return h.Id;
     }
@@ -131,7 +204,20 @@ public sealed class PortfolioService(IDbContextFactory<AppDbContext> dbFactory, 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var h = await FindAsync(db, userId, holdingId, ct);
         Apply(h, clean);
+        await RefetchHistoryIfEarlierAsync(db, userId, h, ct);
         await db.SaveChangesAsync(ct);
+    }
+
+    // A purchase from before the security's known history gets the past fetched again.
+    private static async Task RefetchHistoryIfEarlierAsync(AppDbContext db, string userId, Holding h, CancellationToken ct)
+    {
+        var listing = await db.SecurityPrices.FirstOrDefaultAsync(p => p.UserId == userId && p.Isin == h.Isin && p.Currency == h.Currency, ct);
+        if (listing?.HistoryFetchedAt is null)
+            return;
+        var first = await db.SecurityMonthPrices.Where(m => m.UserId == userId && m.Isin == h.Isin && m.Currency == h.Currency)
+            .Select(m => (DateOnly?)m.Month).MinAsync(ct);
+        if (first is null || new DateOnly(h.BuyDate.Year, h.BuyDate.Month, 1) < first)
+            listing.HistoryFetchedAt = null;
     }
 
     public async Task DeleteHoldingAsync(string userId, int holdingId, CancellationToken ct = default)
@@ -267,6 +353,90 @@ public sealed class PortfolioService(IDbContextFactory<AppDbContext> dbFactory, 
         h.SellPrice = clean.SellPrice;
     }
 
+    // The figures of every currency added up in the main currency, at the newest rates.
+    internal static PortfolioMainTotal InMain(IReadOnlyList<PortfolioTotal> totals, RateTable table)
+    {
+        long Sum(Func<PortfolioTotal, long> pick) => totals.Where(t => table.Has(t.Currency)).Sum(t => table.Convert(pick(t), t.Currency) ?? 0);
+        var complete = totals.All(t => table.Has(t.Currency)) && totals.All(t => t.WithoutPrice == 0);
+        return new PortfolioMainTotal(table.MainCurrency, Sum(t => t.Value), Sum(t => t.Cost), Sum(t => t.Unrealized), Sum(t => t.PricedCost),
+            Sum(t => t.Realized), complete, table.LatestDate);
+    }
+
+    // The histories of all currencies as one, in the main currency: past months at their month
+    // end's rate, this month at the newest. Currencies without a rate are left out.
+    internal static PortfolioHistory? HistoryInMain(IReadOnlyList<PortfolioHistory> parts, RateTable table, DateOnly today)
+    {
+        var thisMonth = new DateOnly(today.Year, today.Month, 1);
+        var usable = parts.Where(h => table.Has(h.Currency)).ToList();
+        if (usable.Count == 0)
+            return null;
+        long Convert(long cents, string currency, DateOnly month) =>
+            (month >= thisMonth ? table.Convert(cents, currency) : table.Convert(cents, currency, month)) ?? 0;
+        var months = usable.SelectMany(h => h.Months.Select(m => m.Month)).Distinct().Order()
+            .Select(month => new PortfolioMonth(month,
+                usable.Sum(h => h.Months.FirstOrDefault(m => m.Month == month) is { } m ? Convert(m.Value, h.Currency, month) : 0),
+                usable.Sum(h => h.Months.FirstOrDefault(m => m.Month == month) is { } m ? Convert(m.Cost, h.Currency, month) : 0)))
+            .ToList();
+        // A year's flows at the rate of its last month.
+        var flows = usable.SelectMany(h => h.Flows.Select(f => (h.Currency, Flow: f))).GroupBy(x => x.Flow.Year).Select(g =>
+        {
+            var month = new DateOnly(g.Key, 12, 1) > thisMonth ? thisMonth : new DateOnly(g.Key, 12, 1);
+            return new YearFlow(g.Key, g.Sum(x => Convert(x.Flow.Bought, x.Currency, month)), g.Sum(x => Convert(x.Flow.Realized, x.Currency, month)));
+        }).OrderBy(f => f.Year).ToList();
+        return new PortfolioHistory(table.MainCurrency, months, flows);
+    }
+
+    // The value at each month end per currency, from the first purchase to this month: what was
+    // held then times that month's close (the newest price for this month), or its cost without one.
+    internal static IReadOnlyList<PortfolioHistory> History(IEnumerable<Holding> holdings,
+        IReadOnlyDictionary<(string Isin, string Currency), SortedList<DateOnly, decimal>> monthPrices,
+        IReadOnlyDictionary<(string, string), SecurityPrice> prices, DateOnly today)
+    {
+        var thisMonth = new DateOnly(today.Year, today.Month, 1);
+        return holdings.Where(h => h.BuyDate <= today).GroupBy(h => h.Currency).OrderBy(g => g.Key).Select(g =>
+        {
+            var rows = g.ToList();
+            var first = rows.Min(h => h.BuyDate);
+            var months = new List<PortfolioMonth>();
+            for (var m = new DateOnly(first.Year, first.Month, 1); m <= thisMonth; m = m.AddMonths(1))
+            {
+                var end = m.AddMonths(1).AddDays(-1);
+                if (end > today) end = today;
+                long value = 0, cost = 0;
+                foreach (var h in rows.Where(h => h.BuyDate <= end && (h.SellDate is null || h.SellDate > end)))
+                {
+                    var price = m == thisMonth && prices.GetValueOrDefault((h.Isin, h.Currency)) is { } now ? now.Price
+                        : Close(monthPrices.GetValueOrDefault((h.Isin, h.Currency)), m) ?? h.BuyPrice;
+                    value += Decimals.Total(h.Quantity, price);
+                    cost += Decimals.Total(h.Quantity, h.BuyPrice);
+                }
+                months.Add(new PortfolioMonth(m, value, cost));
+            }
+            var flows = rows.Select(h => h.BuyDate.Year).Concat(rows.Where(h => h.SellDate is not null).Select(h => h.SellDate!.Value.Year))
+                .Distinct().Order().Select(y => new YearFlow(y,
+                    rows.Where(h => h.BuyDate.Year == y).Sum(h => Decimals.Total(h.Quantity, h.BuyPrice)),
+                    rows.Where(h => h.SellDate?.Year == y).Sum(h => Decimals.Total(h.Quantity, h.SellPrice!.Value) - Decimals.Total(h.Quantity, h.BuyPrice))))
+                .ToList();
+            return new PortfolioHistory(g.Key, months, flows);
+        }).ToList();
+    }
+
+    // The close of the month, or the latest one before it.
+    private static decimal? Close(SortedList<DateOnly, decimal>? closes, DateOnly month)
+    {
+        if (closes is null || closes.Count == 0 || closes.Keys[0] > month)
+            return null;
+        var i = closes.Keys.Count - 1;
+        while (closes.Keys[i] > month) i--;
+        return closes.Values[i];
+    }
+
+    private static async Task<Dictionary<(string Isin, string Currency), SortedList<DateOnly, decimal>>> MonthPricesAsync(
+        AppDbContext db, string userId, CancellationToken ct) =>
+        (await db.SecurityMonthPrices.AsNoTracking().Where(m => m.UserId == userId).ToListAsync(ct))
+        .GroupBy(m => (m.Isin, m.Currency))
+        .ToDictionary(g => g.Key, g => new SortedList<DateOnly, decimal>(g.ToDictionary(m => m.Month, m => m.Price)));
+
     private static async Task<Holding> FindAsync(AppDbContext db, string userId, int holdingId, CancellationToken ct) =>
         await db.Holdings.FirstOrDefaultAsync(h => h.Id == holdingId && h.Portfolio!.UserId == userId, ct)
         ?? throw new NotFoundException("That purchase no longer exists.");
@@ -284,5 +454,5 @@ public sealed class PortfolioService(IDbContextFactory<AppDbContext> dbFactory, 
             h.SellDate, h.SellPrice, price?.Price, price?.PriceDate, h.Ticker, listing?.Ticker);
     }
 
-    private static PortfolioInfo Info(Portfolio p) => new(p.Id, p.Name, p.SortOrder);
+    private static PortfolioInfo Info(Portfolio p) => new(p.Id, p.Name, p.SortOrder, p.InOthers, p.HiddenInTotals, p.ShowInMainCurrency);
 }

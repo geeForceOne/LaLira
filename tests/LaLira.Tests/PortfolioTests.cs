@@ -51,6 +51,17 @@ public sealed class PortfolioTests : IDisposable
                 throw new PriceSourceException(problem);
             return Task.FromResult<IReadOnlyList<SecurityMatch>>(Matches.Where(m => m.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList());
         }
+
+        // Month-end closes per "TICKER.EXCHANGE".
+        public Dictionary<string, List<MonthClose>> History { get; } = [];
+
+        public Task<IReadOnlyList<MonthClose>> MonthlyAsync(string apiKey, string ticker, string exchange, DateOnly from, CancellationToken ct = default)
+        {
+            Calls.Add($"history:{ticker}.{exchange}:{from:yyyy-MM}");
+            if (Fail is { } problem)
+                throw new PriceSourceException(problem);
+            return Task.FromResult<IReadOnlyList<MonthClose>>(History.GetValueOrDefault($"{ticker}.{exchange}", []).Where(m => m.Month >= from).ToList());
+        }
     }
 
     // Nestlé and the iShares Core MSCI World (both real, valid ISINs).
@@ -167,7 +178,7 @@ public sealed class PortfolioTests : IDisposable
         _source.Quotes.Add(new PriceQuote(World, "EUR", 95m, new DateOnly(2026, 10, 15), "XETRA", "EUNL", true));
 
         Assert.Equal(1, await _prices.RefreshAsync("u1"));
-        Assert.Equal([Nestle, World], _source.Calls.Order());
+        Assert.Equal([Nestle, World], _source.Calls.Where(c => !c.StartsWith("history:")).Order());
 
         var view = await _portfolios.GetAsync("u1", p.Id);
         var chf = view.Totals.Single(t => t.Currency == "CHF");
@@ -179,6 +190,45 @@ public sealed class PortfolioTests : IDisposable
         Assert.Equal(1, usd.WithoutPrice);
         Assert.Equal(0, usd.Value);
         Assert.Null((await _prices.GetStatusAsync("u1")).Error);
+    }
+
+    [Fact]
+    public async Task HistoryIsFetchedOnceAndGivesTheValueOverTime()
+    {
+        var p = await _portfolios.CreateAsync("u1", "Depot");
+        // 10 bought on 1 March 2025 at 80, 5 of them sold in June 2026 at 95.
+        var id = await _portfolios.AddHoldingAsync("u1", p.Id, Buy(Nestle, 10, 80m));
+        await _portfolios.SellAsync("u1", id, new SaleInput(new DateOnly(2026, 6, 15), 5, 95m));
+        await _prices.SetKeyAsync("u1", "demo-key");
+        _source.Quotes.Add(new PriceQuote(Nestle, "CHF", 100m, new DateOnly(2026, 10, 15), "SW", "NESN", true));
+        _source.History["NESN.SW"] =
+        [
+            new(new DateOnly(2025, 3, 1), new DateOnly(2025, 3, 31), 82m),
+            new(new DateOnly(2025, 12, 1), new DateOnly(2025, 12, 31), 90m),
+            new(new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), 98m),
+        ];
+
+        await _prices.RefreshAsync("u1");
+        Assert.Contains("history:NESN.SW:2025-03", _source.Calls);
+        _source.Calls.Clear();
+        await _prices.RefreshAsync("u1");
+        Assert.DoesNotContain(_source.Calls, c => c.StartsWith("history:"));
+
+        var h = Assert.Single((await _portfolios.GetAsync("u1", p.Id)).History!);
+        Assert.Equal(new DateOnly(2025, 3, 1), h.Months[0].Month);
+        Assert.Equal(82000, h.Months[0].Value);
+        Assert.Equal(80000, h.Months[0].Cost);
+        // A month without a close takes the latest one before it.
+        Assert.Equal(82000, h.Months.Single(m => m.Month == new DateOnly(2025, 11, 1)).Value);
+        // After the sale only the rest counts.
+        Assert.Equal(45000, h.Months.Single(m => m.Month == new DateOnly(2026, 6, 1)).Value);
+        // This month: the current price.
+        Assert.Equal(50000, h.Months[^1].Value);
+        Assert.Equal(40000, h.Months[^1].Cost);
+        // 2025: worth 900 at the end for 800 bought.
+        var y2025 = h.Years.Single(y => y.Year == 2025);
+        Assert.Equal(10000, y2025.Gain);
+        Assert.Equal(12.5m, y2025.Percent);
     }
 
     [Fact]
@@ -251,7 +301,8 @@ public sealed class PortfolioTests : IDisposable
         var p = await _portfolios.CreateAsync("u1", "Depot");
         await _portfolios.AddHoldingAsync("u1", p.Id, new HoldingInput(found.Name, found.Isin, null, found.Currency, new DateOnly(2026, 1, 5), 100, 22m));
         Assert.Equal(1, await _prices.RefreshAsync("u1", Ubs));
-        Assert.Single(_source.Calls); // the price came from the search
+        // The price came from the search; the one call is the security's past month ends.
+        Assert.Equal(["search:ubs", "history:UBSG.SW:2026-01"], _source.Calls);
 
         var held = Assert.Single((await _portfolios.GetAsync("u1", p.Id)).Holdings);
         Assert.Equal(278500, held.Value);

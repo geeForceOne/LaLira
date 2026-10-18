@@ -9,7 +9,8 @@ using Microsoft.EntityFrameworkCore;
 namespace LaLira.Core.Services;
 
 public sealed record SettingsView(
-    Theme Theme, string Language, string RegionFormat, string TimeZone, bool HasHomepageToken, DateTime? HomepageTokenCreatedAt);
+    Theme Theme, string Language, string RegionFormat, string TimeZone, bool HasHomepageToken, DateTime? HomepageTokenCreatedAt,
+    string? MainCurrency = null);
 
 public sealed record SettingsUpdate(Theme Theme, string Language, string RegionFormat, string TimeZone);
 
@@ -90,6 +91,19 @@ public sealed class SettingsService(IDbContextFactory<AppDbContext> dbFactory)
         _cache.TryRemove(userId, out _);
     }
 
+    // The currency everything is also shown in; null switches the conversion off.
+    public async Task SetMainCurrencyAsync(string userId, string? currency, CancellationToken ct = default)
+    {
+        currency = string.IsNullOrWhiteSpace(currency) ? null : currency.Trim().ToUpperInvariant();
+        if (currency is not null && !Currencies.IsKnown(currency))
+            throw new InputException("Pick a currency from the list.");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var s = await LoadOrAddAsync(db, userId, ct);
+        s.MainCurrency = currency;
+        await db.SaveChangesAsync(ct);
+        _cache.TryRemove(userId, out _);
+    }
+
     // A new homepage widget token, replacing any earlier one. Only its hash is stored, so this is
     // the one time it can be shown.
     public async Task<string> CreateHomepageTokenAsync(string userId, CancellationToken ct = default)
@@ -138,5 +152,6 @@ public sealed class SettingsService(IDbContextFactory<AppDbContext> dbFactory)
     private static string Hash(string token) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 
     private static SettingsView View(UserSettings s) =>
-        new(s.Theme, L.Normalize(s.Language), s.RegionFormat, s.TimeZone, s.HomepageTokenHash is not null, s.HomepageTokenCreatedAt);
+        new(s.Theme, L.Normalize(s.Language), s.RegionFormat, s.TimeZone, s.HomepageTokenHash is not null, s.HomepageTokenCreatedAt,
+            s.MainCurrency);
 }

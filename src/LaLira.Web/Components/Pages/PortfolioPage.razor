@@ -2,6 +2,9 @@
 @inherits AppPage
 @inject PortfolioService Portfolios
 @inject PriceService Prices
+@inject AlertService Alerts
+@inject ExchangeRateService Rates
+@inject SettingsService Settings
 @inject CsvService Csv
 @inject IJSRuntime JS
 
@@ -34,6 +37,13 @@ else
             </p>
         </div>
         <div class="page-actions">
+            @if (_view.Main is { } pm && _view.Totals.Count(t => t.HeldCount > 0) > 1)
+            {
+                <label class="check check-small" @key="_switchKey">
+                    <input type="checkbox" checked="@_view.Portfolio.ShowInMainCurrency" @onchange="e => SetShowMainAsync(e.Value is true)" />
+                    <span>@T["Show in {0}", pm.Currency]</span>
+                </label>
+            }
             <div class="row-menu">
                 <button type="button" class="btn btn-secondary btn-icon" aria-label="@T["More actions"]" aria-expanded="@(_menu ? "true" : "false")" @onclick="() => _menu = !_menu"><Icon Name="more" /></button>
                 @if (_menu)
@@ -41,6 +51,11 @@ else
                     <div class="menu-scrim" @onclick="() => _menu = false"></div>
                     <div class="menu-list" @onclick="() => _menu = false">
                         <button type="button" @onclick="RenameAsync"><Icon Name="edit" Size="16" /> @T["Rename portfolio"]</button>
+                        @* Portfolios are in the overview's chart only with a main currency. *@
+                        @if (_rates is not null)
+                        {
+                            <button type="button" @onclick="ToggleOthersAsync"><Icon Name="chart" Size="16" /> @(_view.Portfolio.InOthers ? T["Show on its own in the chart"] : T["Group under “Others” in the chart"])</button>
+                        }
                         @if (_prices.Key == Core.Security.SecretStatus.Set)
                         {
                             <button type="button" @onclick="RefreshPricesAsync"><Icon Name="restore" Size="16" /> @T["Update prices now"]</button>
@@ -81,37 +96,93 @@ else
     @if (_view.Totals.Count > 0)
     {
         <section class="totals portfolio-totals" aria-label="@T["Totals"]">
-            @foreach (var t in _view.Totals)
+            @if (_view.ShowMain && _view.Main is { } m)
             {
-                <div class="total">
-                    @if (t.HeldCount > 0)
-                    {
-                        <div class="total-label">@T["Value"] <span class="code">@t.Currency</span></div>
-                        <div class="total-value num">@(t.WithoutPrice == t.HeldCount ? "–" : Format.Money(t.Value))</div>
+                var mh = _view.MainHistory;
+                <div class="total @(mh?.Months.Count > 1 ? "with-chart" : "")">
+                    <div class="total-figures">
+                        <div class="total-label">@T["Value in {0}", m.Currency]</div>
+                        <div class="total-value num">@Format.Money(m.Value)</div>
                         <div class="total-flow">
-                            <span><span class="flow-label">@T["Cost"]</span> <span class="num">@Format.Money(t.Cost)</span></span>
-                            @if (t.WithoutPrice < t.HeldCount)
+                            <span><span class="flow-label">@T["Cost"]</span> <span class="num">@Format.Money(m.Cost)</span></span>
+                            <span><span class="flow-label">@T["Gain/loss"]</span> <span class="num @(m.Unrealized < 0 ? "neg" : "")">@Format.Money(m.Unrealized, sign: true)@(m.UnrealizedPercent is { } mpct ? $" ({Format.Percent(mpct)})" : "")</span></span>
+                        </div>
+                        @if (sold.Count > 0)
+                        {
+                            <div class="total-flow">
+                                <span><span class="flow-label">@T["Realized"]</span> <span class="num @(m.Realized < 0 ? "neg" : "")">@Format.Money(m.Realized, sign: true)</span></span>
+                            </div>
+                        }
+                        <div class="total-note muted small">
+                            @if (m.RatesDate is { } rd)
                             {
-                                <span><span class="flow-label">@T["Gain/loss"]</span> <span class="num @(t.Unrealized < 0 ? "neg" : "")">@Format.Money(t.Unrealized, sign: true)@(t.UnrealizedPercent is { } pct ? $" ({Format.Percent(pct)})" : "")</span></span>
+                                <span>@T["Exchange rates of {0}", Format.Date(rd)]</span>
+                            }
+                            @if (!m.Complete)
+                            {
+                                <span>@T["Without what has no price or exchange rate yet."]</span>
                             }
                         </div>
-                    }
-                    else
+                        @YearGains(mh)
+                    </div>
+                    @if (mh?.Months.Count > 1)
                     {
-                        <div class="total-label">@T["Realized"] <span class="code">@t.Currency</span></div>
-                        <div class="total-value num @(t.Realized < 0 ? "neg" : "")">@Format.Money(t.Realized, sign: true)</div>
-                    }
-                    @if (t.HeldCount > 0 && sold.Any(s => s.Currency == t.Currency))
-                    {
-                        <div class="total-flow">
-                            <span><span class="flow-label">@T["Realized"]</span> <span class="num @(t.Realized < 0 ? "neg" : "")">@Format.Money(t.Realized, sign: true)</span></span>
-                        </div>
-                    }
-                    @if (t.WithoutPrice > 0 && _prices.Key == Core.Security.SecretStatus.Set)
-                    {
-                        <div class="muted small">@T.Plural(t.WithoutPrice, "{0} without a price yet", "{0} without a price yet")</div>
+                        <BalanceChart Points="mh.Months.Select(x => (x.Month, x.Value)).ToList()" Cost="mh.Months.Select(x => x.Cost).ToList()" />
                     }
                 </div>
+            }
+            else
+            {
+                @foreach (var t in _view.Totals)
+                {
+                    var h = t.HeldCount > 0 ? _view.History?.FirstOrDefault(x => x.Currency == t.Currency) : null;
+                    <div class="total @(h?.Months.Count > 1 ? "with-chart" : "")">
+                        <div class="total-figures">
+                            @if (t.HeldCount > 0)
+                            {
+                                <div class="total-label">@T["Value"] <span class="code">@t.Currency</span></div>
+                                <div class="total-value num">@(t.WithoutPrice == t.HeldCount ? "–" : Format.Money(t.Value))</div>
+                                <div class="total-flow">
+                                    <span><span class="flow-label">@T["Cost"]</span> <span class="num">@Format.Money(t.Cost)</span></span>
+                                    @if (t.WithoutPrice < t.HeldCount)
+                                    {
+                                        <span><span class="flow-label">@T["Gain/loss"]</span> <span class="num @(t.Unrealized < 0 ? "neg" : "")">@Format.Money(t.Unrealized, sign: true)@(t.UnrealizedPercent is { } pct ? $" ({Format.Percent(pct)})" : "")</span></span>
+                                    }
+                                </div>
+                                @* Below Cost and Gain/loss, so that row lines up in every currency's box. *@
+                                @if (Converted(t.Value, t.Currency) is { } value && t.WithoutPrice < t.HeldCount)
+                                {
+                                    <div class="total-converted num">≈ @Format.Money(value) @_rates!.MainCurrency
+                                        @if (Converted(t.Unrealized, t.Currency) is { } gain)
+                                        {
+                                            <span class="@(gain < 0 ? "neg" : "")"> · @Format.Money(gain, sign: true)</span>
+                                        }
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="total-label">@T["Realized"] <span class="code">@t.Currency</span></div>
+                                <div class="total-value num @(t.Realized < 0 ? "neg" : "")">@Format.Money(t.Realized, sign: true)</div>
+                            }
+                            @if (t.HeldCount > 0 && sold.Any(s => s.Currency == t.Currency))
+                            {
+                                <div class="total-flow">
+                                    <span><span class="flow-label">@T["Realized"]</span> <span class="num @(t.Realized < 0 ? "neg" : "")">@Format.Money(t.Realized, sign: true)</span></span>
+                                </div>
+                            }
+                            @if (t.WithoutPrice > 0 && _prices.Key == Core.Security.SecretStatus.Set)
+                            {
+                                <div class="muted small">@T.Plural(t.WithoutPrice, "{0} without a price yet", "{0} without a price yet")</div>
+                            }
+                            @YearGains(h)
+                        </div>
+                        @if (h?.Months.Count > 1)
+                        {
+                            <BalanceChart Points="h.Months.Select(x => (x.Month, x.Value)).ToList()" Cost="h.Months.Select(x => x.Cost).ToList()" />
+                        }
+                    </div>
+                }
             }
         </section>
     }
@@ -143,21 +214,23 @@ else
                             <th class="num hide-tablet">@T["Price"]</th>
                             <th class="num">@T["Value"]</th>
                             <th class="num">@T["Gain/loss"]</th>
+                            <th class="col-bell"><span class="visually-hidden">@T["Price alerts"]</span></th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var h in held)
                         {
                             var row = h;
+                            var alerts = _alerts.Where(a => a.Isin == h.Isin && a.Currency == h.Currency).ToList();
                             if (_selling == h.Id)
                             {
-                                <tr class="editing" @key="h.Id"><td colspan="8"><SaleEntry Holding="row" Today="_view.Today" OnSave="s => SellAsync(row, s)" OnCancel="() => _selling = null" /></td></tr>
+                                <tr class="editing" @key="h.Id"><td colspan="9"><SaleEntry Holding="row" Today="_view.Today" OnSave="s => SellAsync(row, s)" OnCancel="() => _selling = null" /></td></tr>
                                 continue;
                             }
                             if (_editing == h.Id)
                             {
                                 <tr class="editing" @key="h.Id">
-                                    <td colspan="8">
+                                    <td colspan="9">
                                         <HoldingEntry Today="_view.Today" Existing="row" AutoFocus="true" OnSave="input => UpdateAsync(row.Id, input)"
                                                       OnCancel="() => _editing = null" OnSell="() => StartSale(row.Id)" OnDelete="() => DeleteHoldingAsync(row)" />
                                     </td>
@@ -204,7 +277,23 @@ else
                                         <span class="muted">–</span>
                                     }
                                 </td>
+                                <td class="col-bell">
+                                    <button type="button" class="btn btn-ghost btn-icon btn-sm bell @(alerts.Count > 0 ? "on" : "")"
+                                            title="@T["Price alerts"]" aria-label="@T["Price alerts for {0}", h.Name]" aria-expanded="@(_alertsFor == h.Id ? "true" : "false")"
+                                            @onclick="() => ToggleAlerts(row.Id)" @onclick:stopPropagation="true" @onkeydown:stopPropagation="true">
+                                        <Icon Name="@(alerts.Count > 0 ? "bell-on" : "bell")" Size="16" />
+                                    </button>
+                                </td>
                             </tr>
+                            @if (_alertsFor == h.Id)
+                            {
+                                <tr class="editing alert-row" @key="@($"alerts-{h.Id}")">
+                                    <td colspan="9">
+                                        <AlertPanel Alerts="alerts" Currency="@h.Currency" TimeZone="@_timeZone"
+                                                    OnAdd="input => AddAlertAsync(row, input)" OnDelete="DeleteAlertAsync" OnClose="() => _alertsFor = null" />
+                                    </td>
+                                </tr>
+                            }
                         }
                     </tbody>
                 </table>
@@ -287,6 +376,52 @@ else
     private bool _menu;
     private int? _editing;
     private int? _selling;
+    private int? _alertsFor;
+    private IReadOnlyList<AlertView> _alerts = [];
+    private RateTable? _rates;
+    private string _timeZone = "Europe/Zurich";
+
+    // Each year's gain in percent, under a portfolio's figures.
+    private RenderFragment YearGains(PortfolioHistory? history) => __builder =>
+    {
+        var years = history?.Years.Where(y => y.Percent is not null).TakeLast(6).ToList() ?? [];
+        if (years.Count == 0) return;
+        <div class="year-gains" title="@T["Gain or loss in each year, sales included, in percent of the value at the start of the year plus what was bought"]">
+            <span class="flow-label">@T["Per year"]</span>
+            @foreach (var y in years)
+            {
+                <span class="num">@y.Year <span class="@(y.Gain < 0 ? "neg" : "")">@Format.Percent(y.Percent!.Value)</span></span>
+            }
+        </div>
+    };
+
+    // Changes when a switch's change wasn't saved, so the switch is drawn again as it really is.
+    private int _switchKey;
+
+    private async Task SetShowMainAsync(bool on)
+    {
+        var userId = await UserIdAsync();
+        if (await RunAsync(() => Portfolios.SetOptionsAsync(userId, Id, showInMainCurrency: on, ct: PageToken)))
+            await ReloadAsync();
+        else
+            _switchKey++;
+    }
+
+    private async Task ToggleOthersAsync()
+    {
+        if (_view is null) return;
+        var userId = await UserIdAsync();
+        var on = !_view.Portfolio.InOthers;
+        if (await RunAsync(() => Portfolios.SetOptionsAsync(userId, Id, inOthers: on, ct: PageToken)))
+        {
+            await LoadAsync();
+            Ui.Toast.Success(on ? T["{0} is now part of “Others” in the overview chart.", _view.Portfolio.Name] : T["{0} has its own band in the overview chart again.", _view.Portfolio.Name]);
+        }
+    }
+
+    // In the main currency, when one is set and differs from the currency; null otherwise.
+    private long? Converted(long cents, string currency) =>
+        _rates is { } r && r.MainCurrency != currency ? r.Convert(cents, currency) : null;
 
     // New rows start in the currency used most in this portfolio.
     private string DefaultCurrency => _view?.Holdings.GroupBy(h => h.Currency).OrderByDescending(g => g.Count()).Select(g => g.Key).FirstOrDefault()
@@ -296,7 +431,7 @@ else
     {
         _view = null;
         _missing = false;
-        _editing = _selling = null;
+        _editing = _selling = _alertsFor = null;
         await LoadAsync();
     }
 
@@ -307,6 +442,9 @@ else
             var userId = await UserIdAsync();
             _view = await Portfolios.GetAsync(userId, Id, PageToken);
             _prices = await Prices.GetStatusAsync(userId, PageToken);
+            _alerts = await Alerts.ListAsync(userId, Id, PageToken);
+            _rates = await Rates.TableAsync(userId, PageToken);
+            _timeZone = (await Settings.GetAsync(userId, PageToken)).TimeZone;
         }
         catch (NotFoundException)
         {
@@ -322,8 +460,37 @@ else
 
     private void Edit(int holdingId)
     {
-        _selling = null;
+        _selling = _alertsFor = null;
         _editing = holdingId;
+    }
+
+    private void ToggleAlerts(int holdingId)
+    {
+        _editing = _selling = null;
+        _alertsFor = _alertsFor == holdingId ? null : holdingId;
+    }
+
+    private async Task<string?> AddAlertAsync(HoldingView holding, AlertInput input)
+    {
+        try
+        {
+            await Alerts.AddAsync(await UserIdAsync(), Id, holding.Isin, holding.Currency, input, PageToken);
+        }
+        catch (Exception ex) when (ex is InputException or NotFoundException)
+        {
+            return ErrorText(ex);
+        }
+        _alerts = await Alerts.ListAsync(await UserIdAsync(), Id, PageToken);
+        // Called from the panel's callback, which doesn't re-render this page by itself.
+        StateHasChanged();
+        return null;
+    }
+
+    private async Task DeleteAlertAsync(AlertView alert)
+    {
+        var userId = await UserIdAsync();
+        if (await RunAsync(() => Alerts.DeleteAsync(userId, alert.Id, PageToken)))
+            _alerts = await Alerts.ListAsync(userId, Id, PageToken);
     }
 
     private void StartSale(int holdingId)

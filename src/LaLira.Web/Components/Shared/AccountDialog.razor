@@ -14,11 +14,21 @@
                 </label>
                 <div class="field">
                     <span>@T["Icon"]</span>
-                    <div class="icon-pick" role="radiogroup" aria-label="@T["Icon"]">
+                    <div class="icon-pick tinted" role="radiogroup" aria-label="@T["Icon"]" style="@Format.ColorVar(_color)">
                         @foreach (var (key, label) in AccountIcons.All)
                         {
                             <button type="button" role="radio" aria-checked="@(_icon == key ? "true" : "false")" class="@(_icon == key ? "on" : "")"
                                     title="@T[label]" aria-label="@T[label]" @onclick="() => _icon = key"><Icon Name="@key" Size="20" /></button>
+                        }
+                    </div>
+                </div>
+                <div class="field">
+                    <span>@T["Color"]</span>
+                    <div class="color-pick" role="radiogroup" aria-label="@T["Color"]">
+                        @foreach (var (key, label) in AccountColors.All)
+                        {
+                            <button type="button" role="radio" aria-checked="@(_color == key ? "true" : "false")" class="@(_color == key ? "on" : "")"
+                                    style="@Format.ColorVar(key)" title="@T[label]" aria-label="@T[label]" @onclick="() => _color = key"></button>
                         }
                     </div>
                 </div>
@@ -65,6 +75,10 @@
                     <input type="checkbox" @bind="_showDecimals" /> @T["Show decimals"]
                     <span class="check-hint">@T["Off shows whole amounts (31'833). Amounts are still kept exactly."]</span>
                 </label>
+                <label class="check">
+                    <input type="checkbox" @bind="_inOthers" /> @T["Group under “Others” in the charts"]
+                    <span class="check-hint">@T["For small accounts: the overview charts add them up into one “Others” band."]</span>
+                </label>
                 @if (_error is not null)
                 {
                     <div class="field-error">@_error</div>
@@ -86,6 +100,7 @@
     private string _name = "";
     private string _currency = "CHF";
     private string _icon = AccountIcons.Default;
+    private string _color = AccountColors.All[0].Key;
     private string _iban = "";
     private bool _ibanTouched;
 
@@ -103,13 +118,15 @@
     private DateOnly _openingDate;
     private bool _showDecimals = true;
     private bool _includeInReports = true;
+    private bool _inOthers;
     private string? _error;
     private ElementReference _first;
     private Func<AccountInput, Task<string?>> _save = default!;
     private TaskCompletionSource<bool>? _tcs;
 
     // save returns an error to show, or null when saved. Resolves to true once saved.
-    public Task<bool> AskAsync(AccountInfo? existing, DateOnly today, string defaultCurrency, Func<AccountInput, Task<string?>> save)
+    // defaultColor: for a new account, the next color its siblings don't use yet.
+    public Task<bool> AskAsync(AccountInfo? existing, DateOnly today, string defaultCurrency, Func<AccountInput, Task<string?>> save, string? defaultColor = null)
     {
         _tcs?.TrySetResult(false);
         _editing = existing is not null;
@@ -118,10 +135,12 @@
         _opening = existing is null ? "" : Money.FormatForInput(existing.OpeningBalance, T.Format);
         _openingDate = existing?.OpeningDate ?? today;
         _icon = existing?.Icon ?? AccountIcons.Default;
+        _color = existing?.Color ?? defaultColor ?? AccountColors.All[0].Key;
         _iban = existing?.Iban is { } iban ? Iban.Format(iban) : "";
         _ibanTouched = false;
         _showDecimals = existing?.ShowDecimals ?? true;
         _includeInReports = existing?.IncludeInReports ?? true;
+        _inOthers = existing?.InOthers ?? false;
         _error = null;
         _busy = false;
         _save = save;
@@ -156,7 +175,7 @@
         _busy = true;
         try
         {
-            _error = await _save(new AccountInput(_name, _currency, opening, _openingDate, _showDecimals, _includeInReports, _icon, _iban));
+            _error = await _save(new AccountInput(_name, _currency, opening, _openingDate, _showDecimals, _includeInReports, _icon, _iban, _color, _inOthers));
         }
         finally
         {

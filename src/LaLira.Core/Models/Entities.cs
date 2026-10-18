@@ -51,6 +51,18 @@ public sealed class UserSettings
     // The last daily price refresh (UTC), and what went wrong in it, if anything.
     public DateTime? PricesCheckedAt { get; set; }
     public string? PriceError { get; set; }
+
+    // The prices of that refresh were checked against the price alerts.
+    public DateTime? AlertsCheckedAt { get; set; }
+
+    // ISO 4217 code everything is also shown in, converted with exchange rates; null: off.
+    public string? MainCurrency { get; set; }
+
+    // The overview charts' period in months (0: all), the same for every chart there; null: 5 years.
+    public int? OverviewMonths { get; set; }
+
+    // The "Others" band is switched off in the overview charts.
+    public bool OthersHidden { get; set; }
 }
 
 // A ledger account (bank account, savings, cash...). Amounts are in hundredths of the currency
@@ -72,6 +84,9 @@ public sealed class Account
     // A key from AccountIcons.
     public string Icon { get; set; } = AccountIcons.Default;
 
+    // A key from AccountColors; accounts from before colors get one on first use.
+    public string? Color { get; set; }
+
     // Optional, compact upper case ("CH9300762011623852957"); see Ledger.Iban.
     public const int MaxIbanLength = 34;
     public string? Iban { get; set; }
@@ -82,6 +97,10 @@ public sealed class Account
 
     // The account page lists only this year (and upcoming ones); search still covers every year.
     public bool OnlyCurrentYear { get; set; }
+
+    // In the overview charts: switched off from the legend, or added up with others into one band.
+    public bool HiddenInTotals { get; set; }
+    public bool InOthers { get; set; }
     public int SortOrder { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -149,6 +168,13 @@ public sealed class Portfolio
     public string UserId { get; set; } = "";
     public string Name { get; set; } = "";
     public int SortOrder { get; set; }
+
+    // In the overview charts, like an account's.
+    public bool HiddenInTotals { get; set; }
+    public bool InOthers { get; set; }
+
+    // With securities in several currencies: totals shown once, in the main currency.
+    public bool ShowInMainCurrency { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public List<Holding> Holdings { get; set; } = [];
@@ -203,6 +229,58 @@ public sealed class SecurityPrice
     // Where the price is from, e.g. "SW" (SIX) and the ticker there.
     public string? Exchange { get; set; }
     public string? Ticker { get; set; }
+    public DateTime FetchedAt { get; set; } = DateTime.UtcNow;
+
+    // The past month ends were fetched once (null: not yet).
+    public DateTime? HistoryFetchedAt { get; set; }
+}
+
+// A security's last close in a month (the current month: the latest), from the price history
+// and every price update since. Portfolio values over time are worked out from these.
+public sealed class SecurityMonthPrice
+{
+    public int Id { get; set; }
+    public string UserId { get; set; } = "";
+    public string Isin { get; set; } = "";
+    public string Currency { get; set; } = "";
+
+    // The first of the month; PriceDate is the day the close is from.
+    public DateOnly Month { get; set; }
+    public DateOnly PriceDate { get; set; }
+    public decimal Price { get; set; }
+}
+
+// A limit on a security in a portfolio (all its held purchases together). It fires once when the
+// limit is reached and is armed again once it's back on the other side.
+public sealed class PriceAlert
+{
+    public int Id { get; set; }
+    public int PortfolioId { get; set; }
+    public Portfolio? Portfolio { get; set; }
+    public string Isin { get; set; } = "";
+    public string Currency { get; set; } = "";
+    public AlertKind Kind { get; set; }
+    public bool Above { get; set; }
+
+    // A price per share or a value in the currency, or a gain in percent.
+    public decimal Limit { get; set; }
+    public bool Armed { get; set; } = true;
+    public DateTime? LastFiredAt { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// The rate of one currency in another at the end of a month (the current month: the latest),
+// from Frankfurter. Shared by everyone: rates aren't personal.
+public sealed class ExchangeRate
+{
+    public int Id { get; set; }
+    public string From { get; set; } = "";
+    public string To { get; set; } = "";
+
+    // The first of the month; RateDate is the day the rate is from.
+    public DateOnly Month { get; set; }
+    public DateOnly RateDate { get; set; }
+    public decimal Rate { get; set; }
     public DateTime FetchedAt { get; set; } = DateTime.UtcNow;
 }
 

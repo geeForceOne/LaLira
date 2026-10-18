@@ -1,7 +1,7 @@
 @inject Texts T
 
 @* The overview's portfolio cards: what's held is worth (per currency, from the last prices) and
-   the gain or loss on it. *@
+   the gain or loss on it; one line in the main currency when the portfolio is set to it. *@
 <section class="section">
     <div class="section-head">
         <h2>@T["Portfolios"]<span class="count">@Cards.Count</span></h2>
@@ -19,7 +19,14 @@
                 {
                     <div class="muted small">@T["Nothing held"]</div>
                 }
-                @foreach (var t in p.Totals.Where(t => t.HeldCount > 0))
+                @if (p.ShowMain && p.Main is { } m)
+                {
+                    <div class="portfolio-line">
+                        <span class="acct-balance num">@Format.Money(m.Value, false) <span class="code">@m.Currency</span></span>
+                        <span class="num small @(m.Unrealized < 0 ? "neg" : "muted")">@Format.Money(m.Unrealized, false, sign: true)@(m.UnrealizedPercent is { } mp ? $" · {Format.Percent(mp)}" : "")</span>
+                    </div>
+                }
+                @foreach (var t in p.Totals.Where(t => t.HeldCount > 0 && !p.ShowMain))
                 {
                     <div class="portfolio-line">
                         <span class="acct-balance num">@(t.WithoutPrice == t.HeldCount ? Format.Money(t.Cost, false) : Format.Money(t.Value, false)) <span class="code">@t.Currency</span></span>

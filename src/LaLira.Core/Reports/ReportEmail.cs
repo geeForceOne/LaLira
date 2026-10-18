@@ -15,7 +15,11 @@ public sealed record ReportAccount(string Name, string Currency, bool ShowDecima
     public long Out => Lines.Where(l => !l.IsOpening && l.Amount < 0).Sum(l => l.Amount);
 }
 
-// The report email: money in and out per account, then every booking of the period. No balances.
+// Everything in the main currency; Missing: currencies without an exchange rate, left out.
+public sealed record ReportTotal(string Currency, long In, long Out, IReadOnlyList<string> Missing);
+
+// The report email: money in and out per account, and with a main currency all of it converted.
+// No balances and no single bookings (the user's choice).
 public static class ReportEmail
 {
     public static string PeriodName(Texts t, ReportPeriod period, DateRange range) => period switch
@@ -25,7 +29,8 @@ public static class ReportEmail
         _ => $"{L.MonthName(t.Language, range.Start.Month)} {range.Start.Year}",
     };
 
-    public static EmailMessage Build(Texts t, string shownName, ReportPeriod period, DateRange range, IReadOnlyList<ReportAccount> accounts, string? appLink)
+    public static EmailMessage Build(Texts t, string shownName, ReportPeriod period, DateRange range, IReadOnlyList<ReportAccount> accounts, string? appLink,
+        ReportTotal? total = null)
     {
         var name = PeriodName(t, period, range);
         var subject = t["{0} report: {1}", AppInfo.Name, name];
@@ -35,7 +40,7 @@ public static class ReportEmail
 
         var text = new StringBuilder();
         var html = new StringBuilder();
-        var intro = t["Hello {0}, here are your bookings from {1} to {2}.", shownName, from, to];
+        var intro = t["Hello {0}, here is your money in and out from {1} to {2}.", shownName, from, to];
         text.AppendLine(intro).AppendLine();
         html.Append(Paragraph(intro, marginBottom: 20));
 
@@ -47,7 +52,7 @@ public static class ReportEmail
         }
         else
         {
-            // Summary: money in and out per account. Reports never show balances (the user's choice).
+            // Money in and out per account. Reports never show balances (the user's choice).
             html.Append($"<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" style=\"width:100%;border-collapse:collapse;font-size:14px;margin:0 0 28px\">");
             html.Append($"<tr style=\"color:{Pencil};font-size:12px;text-transform:uppercase;letter-spacing:.04em\">" +
                         Th(t["Account"]) + Th(t["In"], true) + Th(t["Out"], true) + "</tr>");
@@ -57,31 +62,22 @@ public static class ReportEmail
                             Td(M(a.In, a), true) + Td(M(a.Out, a), true) + "</tr>");
                 text.AppendLine($"{a.Name} ({a.Currency}): {t["In"]} {M(a.In, a)}, {t["Out"]} {M(a.Out, a)}");
             }
-            html.Append("</table>");
-            text.AppendLine();
-
-            // Then every booking of the period, per account.
-            foreach (var a in accounts)
+            if (total is not null)
             {
-                html.Append($"<h2 style=\"font-size:16px;margin:0 0 8px\">{Enc(a.Name)} <span style=\"font-weight:400;color:{Pencil}\">{a.Currency}</span></h2>");
-                html.Append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" style=\"width:100%;border-collapse:collapse;font-size:14px;margin:0 0 28px\">");
-                text.AppendLine($"== {a.Name} ({a.Currency}) ==");
-                var lines = a.Lines.Where(l => !l.IsOpening).ToList();
-                if (lines.Count == 0)
-                {
-                    html.Append($"<tr>{Td($"<em style=\"color:{Pencil}\">{Enc(t["No bookings in this period."])}</em>")}{Td("")}</tr>");
-                    text.AppendLine(t["No bookings in this period."]);
-                }
-                foreach (var l in lines)
-                {
-                    var date = l.Date.ToString("d", t.Format);
-                    html.Append($"<tr>{Td($"{Enc(l.Description)}<br><span style=\"color:{Pencil};font-size:12px\">{date}</span>")}" +
-                                Td(M(l.Amount, a), true) + "</tr>");
-                    text.AppendLine($"{date}  {l.Description}  {M(l.Amount, a)}");
-                }
-                html.Append("</table>");
-                text.AppendLine();
+                var label = t["Total in {0}", total.Currency];
+                html.Append($"<tr>{Td($"<strong>{Enc(label)}</strong>", top: true)}" +
+                            Td($"<strong>{Money.Format(total.In, t.Format)}</strong>", true, true) +
+                            Td($"<strong>{Money.Format(total.Out, t.Format)}</strong>", true, true) + "</tr>");
+                text.AppendLine($"{label}: {t["In"]} {Money.Format(total.In, t.Format)}, {t["Out"]} {Money.Format(total.Out, t.Format)}");
             }
+            html.Append("</table>");
+            if (total is { Missing.Count: > 0 })
+            {
+                var note = t["Without {0}: no exchange rate.", string.Join(", ", total.Missing)];
+                html.Append(Paragraph(note, muted: true));
+                text.AppendLine(note);
+            }
+            text.AppendLine();
         }
 
         var footer = t["You get this email because of your {0} report in {1}. You can change or stop it there under Reports.", t[period switch

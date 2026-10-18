@@ -58,6 +58,10 @@ public static class Decimals
     public static string FormatPrice(decimal value, CultureInfo culture) =>
         value.ToString("#,0.00####", culture);
 
+    // "+12.40%", "−3.10%"
+    public static string FormatPercent(decimal value, CultureInfo culture) =>
+        (value > 0 ? "+" : value < 0 ? "−" : "") + Math.Abs(value).ToString("0.00", culture) + "%";
+
     // For an input field: no group separators.
     public static string FormatForInput(decimal value, CultureInfo culture) =>
         value.ToString("0.######", culture);

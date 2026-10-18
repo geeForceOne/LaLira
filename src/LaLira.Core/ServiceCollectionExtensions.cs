@@ -38,6 +38,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<PortfolioService>();
         services.AddSingleton<IPriceSource>(new EodhdPriceSource(new HttpClient { Timeout = TimeSpan.FromSeconds(20) }));
         services.AddSingleton<PriceService>();
+        services.AddSingleton<AlertService>();
+        services.AddSingleton<IRateSource>(new FrankfurterRateSource(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }));
+        services.AddSingleton<ExchangeRateService>();
         return services;
     }
 }

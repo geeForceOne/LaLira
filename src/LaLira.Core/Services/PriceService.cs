@@ -14,12 +14,15 @@ public sealed record PriceStatus(SecretStatus Key, DateTime? CheckedAt, string? 
 
 // Current prices for the portfolios, fetched with each person's own EODHD key: once a day from
 // 06:00 their time (the previous trading day's close), right away for a new security, and on
-// request. One call per ISIN; the free plan allows 20 a day.
+// request. One call per ISIN; the free plan allows 20 a day. Every close is also kept as its
+// month's, and each security's past month ends are fetched once (one more call each, at most
+// MaxHistoryCalls per refresh), so portfolios have a value over time.
 public sealed class PriceService(
     IDbContextFactory<AppDbContext> dbFactory, IDataProtectionProvider dataProtection, IPriceSource source,
     TimeProvider time, ILogger<PriceService> logger)
 {
     public const int MaxKeyLength = 200;
+    public const int MaxHistoryCalls = 5;
     public static readonly TimeOnly DailyRefreshAt = new(6, 0);
 
     // The messages stored as PriceError, in English and translated where they're shown.
@@ -176,11 +179,83 @@ public sealed class PriceService(
             if (onlyIsin is null || error is not null)
                 s.PriceError = error;
             await db.SaveChangesAsync(ct);
+            await KeepMonthsAsync(db, userId, stored, ct);
+            if (error is null)
+                await FetchHistoryAsync(db, userId, key.Value!, stored.Where(p => onlyIsin is null || p.Isin == onlyIsin).ToList(),
+                    Regions.LocalToday(time.GetUtcNow().UtcDateTime, s.TimeZone), ct);
+            await db.SaveChangesAsync(ct);
             return updated;
         }
         finally
         {
             _refreshing.Release();
+        }
+    }
+
+    // Each current close is also its month's close (the last one in a month stays).
+    private static async Task KeepMonthsAsync(AppDbContext db, string userId, IReadOnlyList<SecurityPrice> prices, CancellationToken ct)
+    {
+        var months = await db.SecurityMonthPrices.Where(m => m.UserId == userId).ToListAsync(ct);
+        foreach (var p in prices.Where(p => p.Price > 0))
+        {
+            var month = new DateOnly(p.PriceDate.Year, p.PriceDate.Month, 1);
+            var row = months.FirstOrDefault(m => m.Isin == p.Isin && m.Currency == p.Currency && m.Month == month);
+            if (row is null)
+            {
+                row = new SecurityMonthPrice { UserId = userId, Isin = p.Isin, Currency = p.Currency, Month = month };
+                db.SecurityMonthPrices.Add(row);
+                months.Add(row);
+            }
+            else if (row.PriceDate > p.PriceDate)
+                continue;
+            row.PriceDate = p.PriceDate;
+            row.Price = p.Price;
+        }
+    }
+
+    // The past month ends of securities still held whose history isn't there yet, from the month
+    // of their first purchase (the free plan reaches back a year). A failed call waits for the
+    // next refresh and doesn't show as an error: current prices matter more.
+    private async Task FetchHistoryAsync(AppDbContext db, string userId, string apiKey, IReadOnlyList<SecurityPrice> prices, DateOnly today, CancellationToken ct)
+    {
+        var held = await db.Holdings.AsNoTracking().Where(h => h.Portfolio!.UserId == userId)
+            .GroupBy(h => new { h.Isin, h.Currency })
+            .Select(g => new { g.Key.Isin, g.Key.Currency, Held = g.Any(h => h.SellDate == null), First = g.Min(h => h.BuyDate) })
+            .ToListAsync(ct);
+        var todo = prices.Where(p => p.HistoryFetchedAt is null && p.Ticker is { Length: > 0 } && p.Exchange is { Length: > 0 })
+            .Select(p => (Price: p, Holding: held.FirstOrDefault(h => h.Isin == p.Isin && h.Currency == p.Currency)))
+            .Where(x => x.Holding is { Held: true })
+            .Take(MaxHistoryCalls).ToList();
+        if (todo.Count == 0)
+            return;
+        var months = await db.SecurityMonthPrices.Where(m => m.UserId == userId).ToListAsync(ct);
+        var thisMonth = new DateOnly(today.Year, today.Month, 1);
+        foreach (var (price, holding) in todo)
+        {
+            IReadOnlyList<MonthClose> closes;
+            try
+            {
+                closes = await source.MonthlyAsync(apiKey, price.Ticker!, price.Exchange!, new DateOnly(holding!.First.Year, holding.First.Month, 1), ct);
+            }
+            catch (PriceSourceException ex)
+            {
+                logger.LogInformation("Price history stopped for user {UserId}: {Problem}", userId, ex.Problem);
+                return;
+            }
+            // Only months missing so far: the ones kept from price updates stay.
+            foreach (var close in closes.Where(c => c.Month <= thisMonth))
+            {
+                if (months.Any(m => m.Isin == price.Isin && m.Currency == price.Currency && m.Month == close.Month))
+                    continue;
+                var row = new SecurityMonthPrice
+                {
+                    UserId = userId, Isin = price.Isin, Currency = price.Currency, Month = close.Month,
+                    PriceDate = close.Date > today ? today : close.Date, Price = close.Price,
+                };
+                db.SecurityMonthPrices.Add(row);
+                months.Add(row);
+            }
+            price.HistoryFetchedAt = time.GetUtcNow().UtcDateTime;
         }
     }
 

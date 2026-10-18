@@ -1,0 +1,115 @@
+@inject Texts T
+
+@* The price alerts of one security, inline below its row: the existing ones with where the
+   security stands now, and an entry row (what to watch, above or below, the limit; Enter adds). *@
+<div class="alert-panel" @onkeydown="OnKeyDown">
+    @if (Alerts.Count > 0)
+    {
+        <ul class="alert-list">
+            @foreach (var a in Alerts)
+            {
+                var alert = a;
+                <li>
+                    <Icon Name="@(a.Armed ? "bell" : "bell-on")" Size="15" />
+                    <span class="alert-text">@AlertEmail.Describe(T, a.Kind, a.Above, a.Limit, a.Currency)</span>
+                    @if (a.Current is { } now)
+                    {
+                        <span class="muted small num">@T["now {0}", Figure(a.Kind, now, a.Currency)]</span>
+                    }
+                    @if (!a.Armed)
+                    {
+                        <span class="tag">@(a.LastFiredAt is { } at ? T["reached {0}", Format.Date(at, TimeZone)] : T["already reached"])</span>
+                    }
+                    <button type="button" class="btn btn-ghost btn-icon btn-sm" title="@T["Remove alert"]" aria-label="@T["Remove alert"]" @onclick="() => OnDelete.InvokeAsync(alert)"><Icon Name="x" Size="15" /></button>
+                </li>
+            }
+        </ul>
+    }
+    <form class="alert-entry" @onsubmit="AddAsync" @onsubmit:preventDefault="true">
+        <select class="select" @bind="_kind" aria-label="@T["Alert on"]">
+            <option value="@AlertKind.Price">@T["Price per share"]</option>
+            <option value="@AlertKind.GainPercent">@T["Gain/loss in %"]</option>
+            <option value="@AlertKind.Value">@T["Value of all shares"]</option>
+        </select>
+        <select class="select" @bind="_direction" aria-label="@T["Direction"]">
+            <option value="above">@T["above"]</option>
+            <option value="below">@T["below"]</option>
+        </select>
+        <input class="input input-amount" @bind="_limit" @bind:event="oninput" @ref="_input" autocomplete="off"
+               placeholder="@(_kind == AlertKind.GainPercent ? "-10" : _kind == AlertKind.Price ? "35.00" : "10000")" aria-label="@T["Limit"]" />
+        <span class="muted small">@(_kind == AlertKind.GainPercent ? "%" : Currency)</span>
+        <button type="submit" class="btn btn-primary btn-sm" disabled="@(_busy || string.IsNullOrWhiteSpace(_limit))">@T["Add alert"]</button>
+        <button type="button" class="btn btn-ghost btn-sm" @onclick="() => OnClose.InvokeAsync()">@T["Close"]</button>
+    </form>
+    @if (_error is not null)
+    {
+        <div class="field-error">@_error</div>
+    }
+    <p class="field-hint">@T["Checked against each day's closing price after the morning price update. An alert emails you once when it's reached, and again only after the figure has gone back."]</p>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AlertView> Alerts { get; set; } = [];
+    [Parameter, EditorRequired] public string Currency { get; set; } = "";
+    [Parameter] public string TimeZone { get; set; } = "Europe/Zurich";
+
+    // Returns an error to show, or null when added.
+    [Parameter, EditorRequired] public Func<AlertInput, Task<string?>> OnAdd { get; set; } = default!;
+    [Parameter] public EventCallback<AlertView> OnDelete { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private AlertKind _kind = AlertKind.Price;
+    // "above" or "below" (a bool doesn't bind cleanly to a select).
+    private string _direction = "above";
+    private string _limit = "";
+    private string? _error;
+    private bool _busy;
+    private ElementReference _input;
+    private bool _focused;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focused) return;
+        _focused = true;
+        try { await _input.FocusAsync(); } catch (JSException) { }
+    }
+
+    private string Figure(AlertKind kind, decimal value, string currency) => kind switch
+    {
+        AlertKind.Price => Format.Price(value),
+        AlertKind.GainPercent => Format.Percent(value),
+        _ => $"{Format.Money(Money.FromDecimal(value))} {currency}",
+    };
+
+    private async Task AddAsync()
+    {
+        if (_busy) return;
+        var text = _limit.Replace("%", "").Trim();
+        if (!Decimals.TryParse(text.TrimStart('-', '−', ' '), T.Format, out var limit))
+        {
+            _error = T["Enter the limit as a number, like 10000."];
+            return;
+        }
+        if (text.StartsWith('-') || text.StartsWith('−'))
+            limit = -limit;
+        _busy = true;
+        try
+        {
+            _error = await OnAdd(new AlertInput(_kind, _direction == "above", limit));
+        }
+        finally
+        {
+            _busy = false;
+        }
+        if (_error is null)
+        {
+            _limit = "";
+            try { await _input.FocusAsync(); } catch (JSException) { }
+        }
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") await OnClose.InvokeAsync();
+    }
+}

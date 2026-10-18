@@ -25,7 +25,7 @@ else
     <div class="page-head">
         <div>
             <p class="eyebrow"><a href="">@T["Overview"]</a> / @T["Account"]</p>
-            <h1 class="account-title"><span class="acct-icon acct-icon-lg"><Icon Name="@a.Icon" Size="22" /></span>@a.Name</h1>
+            <h1 class="account-title"><span class="acct-icon acct-icon-lg" style="@Format.ColorVar(a.Color)"><Icon Name="@a.Icon" Size="22" /></span>@a.Name</h1>
             <p class="page-sub">
                 <span class="code">@a.Currency</span>
                 <span>@T["Opened {0}", Format.Date(a.OpeningDate)]</span>
@@ -67,7 +67,7 @@ else
             <div class="total-label">@T["Balance today"]</div>
             <div class="total-value num @(_view.BalanceToday < 0 ? "neg" : "")">@Format.Money(_view.BalanceToday, a) <span class="code">@a.Currency</span></div>
         </div>
-        <BalanceChart Points="_view.MonthEnds" ShowDecimals="a.ShowDecimals" />
+        <BalanceChart Points="_view.MonthEnds" ShowDecimals="a.ShowDecimals" Color="@a.Color" />
         <div class="balance-sides">
         @if (current is not null)
         {

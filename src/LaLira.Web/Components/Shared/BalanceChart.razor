@@ -3,53 +3,131 @@
 @inject Texts T
 @inject IJSRuntime JS
 
-@* The account's balance over time, in the balance box on computers and tablets (hidden on phones).
-   One series: a 2px line with a light area, the latest value marked, start and end labelled below,
-   faint grid lines at round amounts with their values in a column on the right.
-   Hover shows a crosshair and the month's balance; that part runs in the browser (lalira.balanceChart)
-   so moving the pointer doesn't go through the server. Numbers in the SVG are invariant-formatted. *@
+@* A balance over time, in the balance box on computers and tablets (hidden on phones).
+   One series: a 2px line with a light area in the account's color, the latest value marked,
+   start and end labelled below, faint grid lines at round amounts with their values in a column
+   on the right. With Bands (the overview's totals): each account is a band in its color, stacked
+   from zero (negative balances below it), the total as an ink line on top, and a legend below.
+   With OnToggleBand, a click on a legend entry switches its band off (and on again); the line then
+   shows the sum of the bands still drawn. With Cost (a portfolio), what was paid is a dashed line.
+   Hover shows a crosshair and the month's balance (with Bands: each account's too); that part runs
+   in the browser (lalira.balanceChart) so moving the pointer doesn't go through the server.
+   Numbers in the SVG are invariant-formatted. *@
 @if (Points.Count > 1)
 {
-    var data = Visible;
-    var min = data.Min(p => p.Balance);
-    var max = data.Max(p => p.Balance);
+    var shown = Visible;
+    var skip = Points.Count - shown.Count;
+    var legend = (Bands ?? []).Select(b => (b.Key, Name: b.Key == OverviewService.OthersKey ? T["Others"] : b.Name, b.Color, Values: b.Values.Skip(skip).ToList(), b.Hidden))
+        .Where(b => b.Values.Any(v => v != 0)).ToList();
+    var bands = legend.Where(b => !b.Hidden).ToList();
+    var stacked = legend.Count > 0;
+    // With bands switched off, the line is what's left.
+    var data = stacked && bands.Count < legend.Count
+        ? shown.Select((p, i) => (p.Month, Balance: bands.Sum(b => b.Values[i]))).ToList()
+        : shown.ToList();
+    var cost = Cost?.Skip(skip).ToList();
+
+    // Each band's edges per month, as two shapes: its positive part stacked up from zero and its
+    // negative part stacked down (a balance that crosses zero then stays one continuous shape each).
+    var edges = new List<(double[] Lo, double[] Hi, double[] NegLo, double[] NegHi)>();
+    var pos = new double[data.Count];
+    var neg = new double[data.Count];
+    foreach (var b in bands)
+    {
+        var (lo, hi, nlo, nhi) = (new double[data.Count], new double[data.Count], new double[data.Count], new double[data.Count]);
+        for (var i = 0; i < data.Count; i++)
+        {
+            var v = b.Values[i];
+            lo[i] = pos[i];
+            hi[i] = pos[i] += Math.Max(v, 0);
+            nhi[i] = neg[i];
+            nlo[i] = neg[i] += Math.Min(v, 0);
+        }
+        edges.Add((lo, hi, nlo, nhi));
+    }
+
+    double min = data.Min(p => p.Balance);
+    double max = data.Max(p => p.Balance);
+    if (cost is { Count: > 0 })
+    {
+        min = Math.Min(min, cost.Min());
+        max = Math.Max(max, cost.Max());
+    }
+    if (stacked)
+    {
+        min = Math.Min(0, Math.Min(min, neg.Min()));
+        max = Math.Max(0, Math.Max(max, pos.Max()));
+    }
     var span = Math.Max(1, max - min);
-    var lo = min - span * 0.08;
-    var hi = max + span * 0.06;
+    var lo0 = min - span * (stacked && min == 0 ? 0 : 0.08);
+    var hi0 = max + span * 0.06;
     double X(int i) => data.Count == 1 ? 0 : i * 100.0 / (data.Count - 1);
-    double Y(long v) => (1 - (v - lo) / (hi - lo)) * 100.0;
-    var line = string.Join(" ", data.Select((p, i) => FormattableString.Invariant($"{X(i):0.###},{Y(p.Balance):0.###}")));
+    double Y(double v) => (1 - (v - lo0) / (hi0 - lo0)) * 100.0;
+    string Pt(int i, double v) => FormattableString.Invariant($"{X(i):0.###},{Y(v):0.###}");
+    var line = string.Join(" ", data.Select((p, i) => Pt(i, p.Balance)));
     var area = FormattableString.Invariant($"M0,100 L") + line.Replace(" ", " L") + " L100,100 Z";
     var zero = min < 0 && max > 0 ? Y(0) : (double?)null;
-    var labels = data.Select(p => $"{L.MonthName(T.Language, p.Month.Month)} {p.Month.Year} · {Money.Format(p.Balance, T.Format, ShowDecimals)}").ToList();
+    string Month(DateOnly m) => $"{L.MonthName(T.Language, m.Month)} {m.Year}";
+    var labels = data.Select((p, i) => $"{Month(p.Month)} · {Money.Format(p.Balance, T.Format, ShowDecimals)}"
+        + (cost is null ? "" : $" · {T["Cost"]} {Money.Format(cost[i], T.Format, ShowDecimals)}")).ToList();
     var ys = data.Select(p => Math.Round(Y(p.Balance), 3)).ToList();
     // Grid lines at round amounts; those too close to the top or bottom edge are left out.
-    var grid = ChartScale.Ticks(lo, hi).Select(v => (Value: v, Y: Y(v))).Where(g => g.Y is > 4 and < 96).ToList();
+    var grid = ChartScale.Ticks(lo0, hi0).Select(v => (Value: v, Y: Y(v))).Where(g => g.Y is > 4 and < 96).ToList();
     var gridLabels = grid.Select(g => Money.Format(g.Value, T.Format, false)).ToList();
     var gutter = gridLabels.Count == 0 ? 0 : gridLabels.Max(l => l.Length);
+    // Stacked hover: the month and total, then each account with a balance then, largest first.
+    var heads = stacked ? JsonSerializer.Serialize(data.Select(p => new[] { Month(p.Month), Money.Format(p.Balance, T.Format, ShowDecimals) })) : null;
+    var rows = stacked
+        ? JsonSerializer.Serialize(data.Select((_, i) => bands.Where(b => b.Values[i] != 0).OrderByDescending(b => Math.Abs(b.Values[i]))
+            .Select(b => new[] { b.Name, b.Color, Money.Format(b.Values[i], T.Format, ShowDecimals) })))
+        : null;
 
-    <div class="bchart" style="@FormattableString.Invariant($"--bchart-gutter:{gutter}ch")">
-        <div class="bchart-top">
-            <div class="bchart-range" role="group" aria-label="@T["Period"]">
-                @foreach (var (months, label) in Ranges)
-                {
-                    <button type="button" aria-pressed="@(_months == months ? "true" : "false")" @onclick="() => _months = months">@T[label]</button>
-                }
+    <div class="bchart @(stacked ? "stacked" : "") @(Months is null ? "" : "no-range")" style="@FormattableString.Invariant($"--bchart-gutter:{gutter}ch;") @(Color is null ? "" : Format.ColorVar(Color))">
+        @if (Months is null)
+        {
+            <div class="bchart-top">
+                <div class="bchart-range" role="group" aria-label="@T["Period"]">
+                    @foreach (var (months, label) in Ranges)
+                    {
+                        <button type="button" aria-pressed="@(_months == months ? "true" : "false")" @onclick="() => _months = months">@T[label]</button>
+                    }
+                </div>
             </div>
-        </div>
+        }
         <div class="bchart-plot" @ref="_plot" role="img"
              aria-label="@T["Balance from {0} to {1}", labels[0], labels[^1]]"
-             data-labels="@JsonSerializer.Serialize(labels)" data-ys="@JsonSerializer.Serialize(ys)">
+             data-labels="@JsonSerializer.Serialize(labels)" data-ys="@JsonSerializer.Serialize(ys)" data-heads="@heads" data-rows="@rows">
             <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
                 @foreach (var g in grid.Where(g => g.Value != 0 || zero is null))
                 {
                     var gy = g.Y.ToString("0.###", CultureInfo.InvariantCulture);
                     <line class="bchart-grid" x1="0" x2="100" y1="@gy" y2="@gy" />
                 }
-                <path class="bchart-area" d="@area" />
+                @if (stacked)
+                {
+                    for (var k = 0; k < bands.Count; k++)
+                    {
+                        var (bl, bh, nl, nh) = edges[k];
+                        foreach (var (low, high, values) in new[] { (bl, bh, bands[k].Values.Where(v => v > 0)), (nl, nh, bands[k].Values.Where(v => v < 0)) })
+                        {
+                            if (!values.Any()) continue;
+                            var upper = Enumerable.Range(0, data.Count).Select(i => Pt(i, high[i]));
+                            var lower = Enumerable.Range(0, data.Count).Reverse().Select(i => Pt(i, low[i]));
+                            <path class="bchart-band" style="@Format.ColorVar(bands[k].Color)" d="@("M" + string.Join(" L", upper.Concat(lower)) + " Z")" />
+                        }
+                    }
+                }
+                else
+                {
+                    <path class="bchart-area" d="@area" />
+                }
                 @if (zero is { } z)
                 {
                     <line class="bchart-zero" x1="0" x2="100" y1="@z.ToString("0.###", CultureInfo.InvariantCulture)" y2="@z.ToString("0.###", CultureInfo.InvariantCulture)" />
+                }
+                @if (cost is not null)
+                {
+                    <polyline class="bchart-cost" points="@string.Join(" ", cost.Select((c, i) => Pt(i, c)))" />
                 }
                 <polyline class="bchart-line" points="@line" />
             </svg>
@@ -66,8 +144,27 @@
         </div>
         <div class="bchart-axis">
             <span>@labels[0]</span>
-            <span>@($"{L.MonthName(T.Language, data[^1].Month.Month)} {data[^1].Month.Year}")</span>
+            <span>@Month(data[^1].Month)</span>
         </div>
+        @if (stacked)
+        {
+            <div class="bchart-legend">
+                @foreach (var b in legend)
+                {
+                    @if (OnToggleBand.HasDelegate)
+                    {
+                        var key = b.Key;
+                        <button type="button" style="@Format.ColorVar(b.Color)" aria-pressed="@(b.Hidden ? "false" : "true")"
+                                title="@(b.Hidden ? T["Show {0} in the chart", b.Name] : T["Hide {0} from the chart", b.Name])"
+                                @onclick="() => OnToggleBand.InvokeAsync(key)"><i></i>@b.Name</button>
+                    }
+                    else
+                    {
+                        <span style="@Format.ColorVar(b.Color)"><i></i>@b.Name</span>
+                    }
+                }
+            </div>
+        }
     </div>
 }
 
@@ -76,13 +173,34 @@
     [Parameter, EditorRequired] public IReadOnlyList<(DateOnly Month, long Balance)> Points { get; set; } = [];
     [Parameter] public bool ShowDecimals { get; set; } = true;
 
-    private static readonly (int Months, string Label)[] Ranges = [(12, "1 year"), (60, "5 years"), (0, "All")];
+    // The account's color (AccountColors key) for a single series.
+    [Parameter] public string? Color { get; set; }
+
+    // The parts of Points, one value per point each, drawn stacked.
+    [Parameter] public IReadOnlyList<ChartBand>? Bands { get; set; }
+
+    // Called with a band's Key when its legend entry is clicked; without it the legend is plain.
+    [Parameter] public EventCallback<string> OnToggleBand { get; set; }
+
+    // What was paid at each point (a portfolio's cost), drawn as a dashed line.
+    [Parameter] public IReadOnlyList<long>? Cost { get; set; }
+
+    // The period, when the page sets it for all its charts (0: all); then the chart has no buttons.
+    [Parameter] public int? Months { get; set; }
+
+    public static readonly (int Months, string Label)[] Ranges = [(12, "1 year"), (60, "5 years"), (0, "All")];
 
     private int _months = 60;
     private ElementReference _plot;
 
-    private IReadOnlyList<(DateOnly Month, long Balance)> Visible =>
-        _months == 0 || Points.Count <= _months ? Points : Points.Skip(Points.Count - _months).ToList();
+    private IReadOnlyList<(DateOnly Month, long Balance)> Visible
+    {
+        get
+        {
+            var months = Months ?? _months;
+            return months == 0 || Points.Count <= months ? Points : Points.Skip(Points.Count - months).ToList();
+        }
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

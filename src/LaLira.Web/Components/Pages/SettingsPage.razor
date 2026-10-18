@@ -3,6 +3,7 @@
 @inherits AppPage
 @inject SettingsService Settings
 @inject PriceService Prices
+@inject ExchangeRateService Rates
 @inject IJSRuntime JS
 
 <PageTitle>@T["Settings"] · @AppInfo.Name</PageTitle>
@@ -67,6 +68,29 @@ else
                         <button type="submit" class="btn btn-primary" disabled="@(Busy || !Changed)">@T["Save"]</button>
                     </div>
                 </form>
+            </div>
+        </section>
+
+        <section class="setting" id="main-currency">
+            <div class="setting-intro">
+                <h2>@T["Main currency"]</h2>
+                <p>@T["With a main currency, the overview adds a total of everything converted into it, and reports, portfolios and the homepage widget show converted amounts too. Exchange rates come from Frankfurter (central bank rates), updated once a day. Your bookings stay in their own currencies."]</p>
+            </div>
+            <div class="setting-body">
+                <label class="field field-narrow">
+                    <span>@T["Main currency"]</span>
+                    <select class="select" value="@(_s.MainCurrency ?? "")" @onchange="SetMainCurrencyAsync" disabled="@Busy">
+                        <option value="">@T["None"]</option>
+                        @foreach (var c in Currencies.Ordered)
+                        {
+                            <option value="@c.Code">@c.Code · @c.Name(T.Language)</option>
+                            if (c.Code == Currencies.Common[^1])
+                            {
+                                <option disabled>──────────</option>
+                            }
+                        }
+                    </select>
+                </label>
             </div>
         </section>
 
@@ -175,6 +199,7 @@ else
           label: @T["Out"]
           format: float</code></pre>
                     <p class="muted small">@T["Replace CHF with your currency. The answer also has \"net\" per currency and \"month\"."]</p>
+                    <p class="muted small">@T["With a main currency, \"total\" has everything converted into it: { total: in }."]</p>
                 </details>
             </div>
         </section>
@@ -235,6 +260,22 @@ else
         if (await RunAsync(async () => await Settings.SaveAsync(await UserIdAsync(), new SettingsUpdate(_s.Theme, _language, _region, _timeZone), PageToken)))
             // The page's language and formats are fixed when it loads.
             Nav.Refresh(forceReload: true);
+    }
+
+    // Rates for the new currency are fetched right away, so the overview has them.
+    private async Task SetMainCurrencyAsync(ChangeEventArgs e)
+    {
+        var userId = await UserIdAsync();
+        var currency = e.Value as string;
+        if (!await RunAsync(async () =>
+            {
+                await Settings.SetMainCurrencyAsync(userId, currency, PageToken);
+                if (!string.IsNullOrEmpty(currency))
+                    await Rates.UpdateDueAsync(PageToken);
+            }))
+            return;
+        _s = await Settings.GetAsync(userId, PageToken);
+        Ui.Toast.Success(_s.MainCurrency is { } c ? T["Main currency set to {0}.", c] : T["Main currency switched off."]);
     }
 
     private async Task SetThemeAsync(Theme theme)

@@ -18,6 +18,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<Portfolio> Portfolios => Set<Portfolio>();
     public DbSet<Holding> Holdings => Set<Holding>();
     public DbSet<SecurityPrice> SecurityPrices => Set<SecurityPrice>();
+    public DbSet<SecurityMonthPrice> SecurityMonthPrices => Set<SecurityMonthPrice>();
+    public DbSet<PriceAlert> PriceAlerts => Set<PriceAlert>();
+    public DbSet<ExchangeRate> ExchangeRates => Set<ExchangeRate>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -30,6 +33,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
             e.Property(x => x.Language).HasMaxLength(8);
             e.Property(x => x.RegionFormat).HasMaxLength(16);
             e.Property(x => x.TimeZone).HasMaxLength(64);
+            e.Property(x => x.MainCurrency).HasMaxLength(3);
             e.HasIndex(x => x.HomepageTokenHash);
         });
 
@@ -40,6 +44,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
             e.Property(x => x.Currency).HasMaxLength(3);
             e.Property(x => x.Icon).HasMaxLength(16).HasDefaultValue(AccountIcons.Default);
             e.Property(x => x.Iban).HasMaxLength(Account.MaxIbanLength);
+            e.Property(x => x.Color).HasMaxLength(16);
             e.HasIndex(x => x.UserId);
         });
 
@@ -88,6 +93,29 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
             e.Property(x => x.Exchange).HasMaxLength(16);
             e.Property(x => x.Ticker).HasMaxLength(32);
             e.HasIndex(x => new { x.UserId, x.Isin, x.Currency }).IsUnique();
+        });
+
+        b.Entity<SecurityMonthPrice>(e =>
+        {
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.Property(x => x.Isin).HasMaxLength(12);
+            e.Property(x => x.Currency).HasMaxLength(3);
+            e.HasIndex(x => new { x.UserId, x.Isin, x.Currency, x.Month }).IsUnique();
+        });
+
+        b.Entity<PriceAlert>(e =>
+        {
+            e.HasOne(x => x.Portfolio).WithMany().HasForeignKey(x => x.PortfolioId).OnDelete(DeleteBehavior.Cascade);
+            e.Property(x => x.Isin).HasMaxLength(12);
+            e.Property(x => x.Currency).HasMaxLength(3);
+            e.HasIndex(x => new { x.PortfolioId, x.Isin });
+        });
+
+        b.Entity<ExchangeRate>(e =>
+        {
+            e.Property(x => x.From).HasMaxLength(3);
+            e.Property(x => x.To).HasMaxLength(3);
+            e.HasIndex(x => new { x.From, x.To, x.Month }).IsUnique();
         });
 
         b.Entity<EmailReport>(e =>
