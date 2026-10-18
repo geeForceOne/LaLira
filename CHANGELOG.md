@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.5.1 - 2026-10-18
+
+### Fixed
+- "Update prices now" and the daily price update failed while fetching a portfolio's past prices, so its value chart stayed empty.
+
 ## 1.5.0 - 2026-10-18
 
 ### New
