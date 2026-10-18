@@ -179,11 +179,24 @@ public sealed class PriceService(
             if (onlyIsin is null || error is not null)
                 s.PriceError = error;
             await db.SaveChangesAsync(ct);
-            await KeepMonthsAsync(db, userId, stored, ct);
-            if (error is null)
-                await FetchHistoryAsync(db, userId, key.Value!, stored.Where(p => onlyIsin is null || p.Isin == onlyIsin).ToList(),
-                    Regions.LocalToday(time.GetUtcNow().UtcDateTime, s.TimeZone), ct);
-            await db.SaveChangesAsync(ct);
+            // The month closes and the history only add to what the prices show: a problem with
+            // them is logged and tried again on the next refresh, the new prices stay.
+            try
+            {
+                // Saved first, so the history sees this month's close and doesn't add it again.
+                await KeepMonthsAsync(db, userId, stored, ct);
+                await db.SaveChangesAsync(ct);
+                if (error is null)
+                {
+                    await FetchHistoryAsync(db, userId, key.Value!, stored.Where(p => onlyIsin is null || p.Isin == onlyIsin).ToList(),
+                        Regions.LocalToday(time.GetUtcNow().UtcDateTime, s.TimeZone), ct);
+                    await db.SaveChangesAsync(ct);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Keeping the price history failed for user {UserId}", userId);
+            }
             return updated;
         }
         finally

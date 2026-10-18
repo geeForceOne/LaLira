@@ -232,6 +232,28 @@ public sealed class PortfolioTests : IDisposable
     }
 
     [Fact]
+    public async Task HistoryWithThisMonthKeepsTheCurrentClose()
+    {
+        // EODHD's monthly rows include the current month, which the refresh has just kept too.
+        var p = await _portfolios.CreateAsync("u1", "Depot");
+        await _portfolios.AddHoldingAsync("u1", p.Id, Buy(Nestle, 10, 80m));
+        await _prices.SetKeyAsync("u1", "demo-key");
+        _source.Quotes.Add(new PriceQuote(Nestle, "CHF", 100m, new DateOnly(2026, 10, 15), "SW", "NESN", true));
+        _source.History["NESN.SW"] =
+        [
+            new(new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), 98m),
+            new(new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31), 99m),
+        ];
+
+        Assert.Equal(1, await _prices.RefreshAsync("u1"));
+        await using var db = _factory.CreateDbContext();
+        var months = db.SecurityMonthPrices.Where(m => m.Isin == Nestle).OrderBy(m => m.Month).ToList();
+        Assert.Equal([new DateOnly(2026, 9, 1), new DateOnly(2026, 10, 1)], months.Select(m => m.Month));
+        Assert.Equal(100m, months[^1].Price);
+        Assert.NotNull(db.SecurityPrices.Single(x => x.Isin == Nestle).HistoryFetchedAt);
+    }
+
+    [Fact]
     public async Task ARejectedKeyIsReported()
     {
         var p = await _portfolios.CreateAsync("u1", "Depot");
