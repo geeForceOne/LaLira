@@ -2,23 +2,28 @@ namespace LaLira.Core.Models;
 
 // The colors an account can have; app.css defines each as --c-<key> for the dark and the light
 // theme. Labels are English texts (translated where shown). No red: a red account would read
-// like a negative balance.
+// like a negative balance. Spread over hue and lightness so even the closest pair stays apart
+// in a stacked chart, and ordered so the colors handed out first differ the most.
 public static class AccountColors
 {
     public static readonly IReadOnlyList<(string Key, string Label)> All =
     [
         ("blue", "Blue"),
-        ("teal", "Teal"),
-        ("green", "Green"),
-        ("gold", "Gold"),
         ("orange", "Orange"),
+        ("green", "Green"),
         ("pink", "Pink"),
+        ("sky", "Sky"),
+        ("gold", "Gold"),
         ("purple", "Purple"),
-        ("indigo", "Indigo"),
-        ("cyan", "Cyan"),
-        ("lime", "Lime"),
+        ("teal", "Teal"),
         ("brown", "Brown"),
+        ("lime", "Lime"),
+        ("indigo", "Indigo"),
         ("slate", "Slate"),
+        ("mint", "Mint"),
+        ("plum", "Plum"),
+        ("sand", "Sand"),
+        ("forest", "Forest"),
     ];
 
     // The neutral color of the accounts and portfolios added up as "Others" in the charts; not one

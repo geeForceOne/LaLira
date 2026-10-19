@@ -48,18 +48,22 @@
     --info-soft: rgba(126, 166, 216, 0.10);
 
     /* Account colors (AccountColors), for icons, small charts and the stacked total charts. */
-    --c-blue: #7ea6d8;
-    --c-teal: #4fc1b6;
-    --c-green: #7cc785;
-    --c-gold: #e3bd55;
-    --c-orange: #ee9d5c;
-    --c-pink: #e58cbd;
-    --c-purple: #b497e6;
-    --c-indigo: #8f9df0;
-    --c-cyan: #66c4e6;
-    --c-lime: #bccf6a;
-    --c-brown: #c79d7b;
-    --c-slate: #9cabbb;
+    --c-blue: #3e98e3;
+    --c-orange: #dd7b2b;
+    --c-green: #4fb768;
+    --c-pink: #ff99c3;
+    --c-sky: #8fe7fe;
+    --c-gold: #fac053;
+    --c-purple: #a678dc;
+    --c-teal: #018d87;
+    --c-brown: #926b48;
+    --c-lime: #c9e66f;
+    --c-indigo: #4d6daf;
+    --c-slate: #a5b3c1;
+    --c-mint: #81d8c2;
+    --c-plum: #b66992;
+    --c-sand: #cbbc9a;
+    --c-forest: #558250;
     --c-others: #5d646c;
     --band-opacity: 0.5;
 
@@ -122,18 +126,22 @@
     --bad-soft: rgba(180, 35, 24, 0.07);
     --info-soft: rgba(45, 91, 146, 0.06);
 
-    --c-blue: #2d5b92;
-    --c-teal: #12837a;
-    --c-green: #2f8740;
-    --c-gold: #a47809;
-    --c-orange: #c25f12;
-    --c-pink: #b33d84;
-    --c-purple: #7650bf;
-    --c-indigo: #4656c0;
-    --c-cyan: #0b7ca4;
-    --c-lime: #657f12;
-    --c-brown: #8c5b36;
-    --c-slate: #5c6979;
+    --c-blue: #056db1;
+    --c-orange: #9e5209;
+    --c-green: #0e8238;
+    --c-pink: #c86892;
+    --c-sky: #39a1ba;
+    --c-gold: #bd8708;
+    --c-purple: #7648a7;
+    --c-teal: #147874;
+    --c-brown: #573410;
+    --c-lime: #829c15;
+    --c-indigo: #193370;
+    --c-slate: #6f7c89;
+    --c-mint: #4aa18d;
+    --c-plum: #763058;
+    --c-sand: #8d7f5e;
+    --c-forest: #174313;
     --c-others: #b9bec4;
     --band-opacity: 0.42;
 
@@ -725,8 +733,8 @@ td.num, th.num, .num.right { text-align: right; }
 /* With a color picked, the icons show in it. */
 .icon-pick.tinted button.on { border-color: var(--acct); background: color-mix(in srgb, var(--acct) 15%, transparent); color: var(--acct); box-shadow: 0 0 0 1px var(--acct) inset; }
 
-/* The account color picker: swatches, the chosen one ringed. */
-.color-pick { display: flex; flex-wrap: wrap; gap: 8px; }
+/* The account color picker: swatches in two even rows of 8, the chosen one ringed. */
+.color-pick { display: grid; grid-template-columns: repeat(8, max-content); gap: 8px; }
 .color-pick button {
     width: 28px;
     height: 28px;

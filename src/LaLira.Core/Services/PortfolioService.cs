@@ -8,7 +8,7 @@ namespace LaLira.Core.Services;
 
 // Color: an AccountColors key.
 public sealed record PortfolioInfo(int Id, string Name, int SortOrder, bool InOthers = false, bool HiddenInTotals = false, bool ShowInMainCurrency = false,
-    string Color = "slate");
+    string Color = "forest");
 
 // A portfolio's name and how it shows (the Edit portfolio dialog); without a Color it gets the next free one.
 public sealed record PortfolioInput(string Name, string? Color = null, bool InOthers = false);

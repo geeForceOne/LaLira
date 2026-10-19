@@ -86,7 +86,7 @@ public sealed class ColorsRatesAlertsTests : IDisposable
     public void NextColorIsTheFirstUnused()
     {
         Assert.Equal("blue", AccountColors.Next([]));
-        Assert.Equal("green", AccountColors.Next(["blue", "teal", null, "nonsense"]));
+        Assert.Equal("green", AccountColors.Next(["blue", "orange", null, "nonsense"]));
         // All taken: they repeat in order.
         Assert.Equal("blue", AccountColors.Next(AccountColors.All.Select(c => (string?)c.Key)));
         Assert.All(AccountColors.All, c => Assert.True(L.GermanDictionary.ContainsKey(c.Label), c.Label));
@@ -97,7 +97,7 @@ public sealed class ColorsRatesAlertsTests : IDisposable
     {
         Assert.Equal("blue", (await AccountAsync("A", "CHF", 0, new DateOnly(2026, 1, 1))).Color);
         Assert.Equal("purple", (await AccountAsync("B", "CHF", 0, new DateOnly(2026, 1, 1), "purple")).Color);
-        Assert.Equal("teal", (await AccountAsync("C", "CHF", 0, new DateOnly(2026, 1, 1))).Color);
+        Assert.Equal("orange", (await AccountAsync("C", "CHF", 0, new DateOnly(2026, 1, 1))).Color);
         Assert.Equal("green", (await AccountAsync("D", "CHF", 0, new DateOnly(2026, 1, 1), "no-such-color")).Color);
     }
 
@@ -112,7 +112,7 @@ public sealed class ColorsRatesAlertsTests : IDisposable
             await db.SaveChangesAsync();
         }
         var list = await _accounts.ListAsync("u1");
-        Assert.Equal(["teal", "blue", "green"], list.Select(a => a.Color));
+        Assert.Equal(["orange", "blue", "green"], list.Select(a => a.Color));
     }
 
     [Fact]
@@ -268,9 +268,9 @@ public sealed class ColorsRatesAlertsTests : IDisposable
             });
             await db.SaveChangesAsync();
         }
-        Assert.Equal(["lime", "brown"], (await _portfolios.ListAsync("u1")).Select(p => p.Color));
-        Assert.Equal("cyan", await _portfolios.NextColorAsync("u1"));
-        Assert.Equal("cyan", (await _portfolios.CreateAsync("u1", "New")).Color);
+        Assert.Equal(["sand", "forest"], (await _portfolios.ListAsync("u1")).Select(p => p.Color));
+        Assert.Equal("plum", await _portfolios.NextColorAsync("u1"));
+        Assert.Equal("plum", (await _portfolios.CreateAsync("u1", "New")).Color);
         var picked = await _portfolios.CreateAsync("u1", new PortfolioInput("Picked", "gold", InOthers: true));
         Assert.Equal("gold", picked.Color);
         Assert.True(picked.InOthers);
@@ -285,7 +285,7 @@ public sealed class ColorsRatesAlertsTests : IDisposable
         await _settings.SetMainCurrencyAsync("u1", "CHF");
         await _rates.UpdateDueAsync();
         var band = (await _overview.GetAsync("u1")).Main!.Bands.Single(b => b.Name == "Shares");
-        Assert.Equal("brown", band.Color);
+        Assert.Equal("forest", band.Color);
     }
 
     [Fact]
