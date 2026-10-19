@@ -4,6 +4,7 @@
 @inject AccountService Accounts
 @inject RecurringService Recurring
 @inject CsvService Csv
+@inject SettingsService Settings
 @inject IJSRuntime JS
 
 <PageTitle>@(_view?.Account.Name ?? T["Account"]) · @AppInfo.Name</PageTitle>
@@ -67,7 +68,7 @@ else
             <div class="total-label">@T["Balance today"]</div>
             <div class="total-value num @(_view.BalanceToday < 0 ? "neg" : "")">@Format.Money(_view.BalanceToday, a) <span class="code">@a.Currency</span></div>
         </div>
-        <BalanceChart Points="_view.MonthEnds" ShowDecimals="a.ShowDecimals" Color="@a.Color" />
+        <BalanceChart Points="_view.MonthEnds" ShowDecimals="a.ShowDecimals" Color="@a.Color" Months="_months" MonthsChanged="SetMonthsAsync" />
         <div class="balance-sides">
         @if (current is not null)
         {
@@ -292,6 +293,15 @@ else
     private int? _editing;
     private string _query = "";
     private RuleDialog _ruleDialog = default!;
+    private int _months = OverviewService.DefaultMonths;
+
+    // The chart's period, remembered for every account page.
+    private async Task SetMonthsAsync(int months)
+    {
+        _months = months;
+        var userId = await UserIdAsync();
+        await RunAsync(() => Settings.SetChartMonthsAsync(userId, ChartPage.Account, months, PageToken));
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -308,6 +318,7 @@ else
             var userId = await UserIdAsync();
             _view = await Ledger.GetAsync(userId, Id, T.Language, PageToken);
             _rules = await Recurring.ListAsync(userId, Id, PageToken);
+            _months = (await Settings.GetAsync(userId, PageToken)).AccountMonths;
         }
         catch (NotFoundException)
         {

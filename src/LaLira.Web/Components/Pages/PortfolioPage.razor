@@ -28,7 +28,7 @@ else
     <div class="page-head">
         <div>
             <p class="eyebrow"><a href="">@T["Overview"]</a> / @T["Portfolio"]</p>
-            <h1 class="account-title"><span class="acct-icon acct-icon-lg"><Icon Name="chart" Size="22" /></span>@_view.Portfolio.Name</h1>
+            <h1 class="account-title"><span class="acct-icon acct-icon-lg" style="@Format.ColorVar(_view.Portfolio.Color)"><Icon Name="chart" Size="22" /></span>@_view.Portfolio.Name</h1>
             <p class="page-sub">
                 @if (_prices.Key == Core.Security.SecretStatus.Set)
                 {
@@ -37,7 +37,17 @@ else
             </p>
         </div>
         <div class="page-actions">
-            @if (_view.Main is { } pm && _view.Totals.Count(t => t.HeldCount > 0) > 1)
+            @if (HasCharts)
+            {
+                @* One period for every chart on the page, remembered for all portfolios; charts are hidden on phones, so is this. *@
+                <div class="bchart-range page-range" role="group" aria-label="@T["Period"]">
+                    @foreach (var (months, label) in BalanceChart.Ranges)
+                    {
+                        <button type="button" aria-pressed="@(_months == months ? "true" : "false")" @onclick="() => SetMonthsAsync(months)">@T[label]</button>
+                    }
+                </div>
+            }
+            @if (_view.CanShowMain && _view.Main is { } pm)
             {
                 <label class="check check-small" @key="_switchKey">
                     <input type="checkbox" checked="@_view.Portfolio.ShowInMainCurrency" @onchange="e => SetShowMainAsync(e.Value is true)" />
@@ -50,12 +60,7 @@ else
                 {
                     <div class="menu-scrim" @onclick="() => _menu = false"></div>
                     <div class="menu-list" @onclick="() => _menu = false">
-                        <button type="button" @onclick="RenameAsync"><Icon Name="edit" Size="16" /> @T["Rename portfolio"]</button>
-                        @* Portfolios are in the overview's chart only with a main currency. *@
-                        @if (_rates is not null)
-                        {
-                            <button type="button" @onclick="ToggleOthersAsync"><Icon Name="chart" Size="16" /> @(_view.Portfolio.InOthers ? T["Show on its own in the chart"] : T["Group under “Others” in the chart"])</button>
-                        }
+                        <button type="button" @onclick="EditAsync"><Icon Name="edit" Size="16" /> @T["Edit portfolio"]</button>
                         @if (_prices.Key == Core.Security.SecretStatus.Set)
                         {
                             <button type="button" @onclick="RefreshPricesAsync"><Icon Name="restore" Size="16" /> @T["Update prices now"]</button>
@@ -127,7 +132,7 @@ else
                     </div>
                     @if (mh?.Months.Count > 1)
                     {
-                        <BalanceChart Points="mh.Months.Select(x => (x.Month, x.Value)).ToList()" Cost="mh.Months.Select(x => x.Cost).ToList()" />
+                        <BalanceChart Points="mh.Months.Select(x => (x.Month, x.Value)).ToList()" Cost="mh.Months.Select(x => x.Cost).ToList()" Color="@_view.Portfolio.Color" Months="_months" />
                     }
                 </div>
             }
@@ -179,7 +184,7 @@ else
                         </div>
                         @if (h?.Months.Count > 1)
                         {
-                            <BalanceChart Points="h.Months.Select(x => (x.Month, x.Value)).ToList()" Cost="h.Months.Select(x => x.Cost).ToList()" />
+                            <BalanceChart Points="h.Months.Select(x => (x.Month, x.Value)).ToList()" Cost="h.Months.Select(x => x.Cost).ToList()" Color="@_view.Portfolio.Color" Months="_months" />
                         }
                     </div>
                 }
@@ -367,6 +372,8 @@ else
     }
 }
 
+<PortfolioDialog @ref="_dialog" />
+
 @code {
     [Parameter] public int Id { get; set; }
 
@@ -380,6 +387,11 @@ else
     private IReadOnlyList<AlertView> _alerts = [];
     private RateTable? _rates;
     private string _timeZone = "Europe/Zurich";
+    private int _months = OverviewService.DefaultMonths;
+    private PortfolioDialog _dialog = default!;
+
+    // A chart is drawn for the main-currency total or for a currency's.
+    private bool HasCharts => _view is { } v && (v.ShowMain ? v.MainHistory?.Months.Count > 1 : v.History?.Any(h => h.Months.Count > 1) == true);
 
     // Each year's gain in percent, under a portfolio's figures.
     private RenderFragment YearGains(PortfolioHistory? history) => __builder =>
@@ -407,16 +419,11 @@ else
             _switchKey++;
     }
 
-    private async Task ToggleOthersAsync()
+    private async Task SetMonthsAsync(int months)
     {
-        if (_view is null) return;
+        _months = months;
         var userId = await UserIdAsync();
-        var on = !_view.Portfolio.InOthers;
-        if (await RunAsync(() => Portfolios.SetOptionsAsync(userId, Id, inOthers: on, ct: PageToken)))
-        {
-            await LoadAsync();
-            Ui.Toast.Success(on ? T["{0} is now part of “Others” in the overview chart.", _view.Portfolio.Name] : T["{0} has its own band in the overview chart again.", _view.Portfolio.Name]);
-        }
+        await RunAsync(() => Settings.SetChartMonthsAsync(userId, ChartPage.Portfolio, months, PageToken));
     }
 
     // In the main currency, when one is set and differs from the currency; null otherwise.
@@ -444,7 +451,9 @@ else
             _prices = await Prices.GetStatusAsync(userId, PageToken);
             _alerts = await Alerts.ListAsync(userId, Id, PageToken);
             _rates = await Rates.TableAsync(userId, PageToken);
-            _timeZone = (await Settings.GetAsync(userId, PageToken)).TimeZone;
+            var settings = await Settings.GetAsync(userId, PageToken);
+            _timeZone = settings.TimeZone;
+            _months = settings.PortfolioMonths;
         }
         catch (NotFoundException)
         {
@@ -599,13 +608,23 @@ else
         }
     }
 
-    private async Task RenameAsync()
+    private async Task EditAsync()
     {
         if (_view is null) return;
-        var name = await Ui.Prompt.AskAsync(T["Rename portfolio"], T["Name"], _view.Portfolio.Name, T["Save"]);
-        if (name is null || name.Trim() == _view.Portfolio.Name) return;
         var userId = await UserIdAsync();
-        if (await RunAsync(() => Portfolios.RenameAsync(userId, Id, name, PageToken)))
+        var ok = await _dialog.AskAsync(_view.Portfolio, withOthers: _rates is not null, save: async input =>
+        {
+            try
+            {
+                await Portfolios.UpdateAsync(userId, Id, input, PageToken);
+                return null;
+            }
+            catch (Exception ex) when (ex is InputException or NotFoundException)
+            {
+                return ErrorText(ex);
+            }
+        });
+        if (ok)
             await ReloadAsync();
     }
 

@@ -397,6 +397,10 @@ namespace LaLira.Core.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Color")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -692,6 +696,9 @@ namespace LaLira.Core.Data.Migrations
                     b.Property<string>("UserId")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("AccountMonths")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime?>("AlertsCheckedAt")
                         .HasColumnType("TEXT");
 
@@ -714,6 +721,9 @@ namespace LaLira.Core.Data.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<int?>("OverviewMonths")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("PortfolioMonths")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("PriceApiKeyProtected")

@@ -589,9 +589,7 @@
   "Portfolios": "Depots",
   "New portfolio": "Neues Depot",
   "Create portfolio": "Depot erstellen",
-  "Rename portfolio": "Depot umbenennen",
   "Delete portfolio": "Depot löschen",
-  "For example “ETFs and shares”. Purchases are added on its page.": "Zum Beispiel «ETF und Aktien». Die Käufe erfassen Sie auf seiner Seite.",
   "This portfolio doesn't exist anymore": "Dieses Depot gibt es nicht mehr",
   "That portfolio no longer exists.": "Dieses Depot gibt es nicht mehr.",
   "That purchase no longer exists.": "Dieser Kauf existiert nicht mehr.",
@@ -740,9 +738,6 @@
   "Group under “Others” in the charts": "In den Grafiken unter «Übrige» zusammenfassen",
   "For small accounts: the overview charts add them up into one “Others” band.": "Für kleine Konten: Die Grafiken der Übersicht zählen sie in einem Band «Übrige» zusammen.",
   "Group under “Others” in the chart": "In der Grafik unter «Übrige» zusammenfassen",
-  "Show on its own in the chart": "In der Grafik einzeln zeigen",
-  "{0} is now part of “Others” in the overview chart.": "{0} gehört in der Grafik der Übersicht jetzt zu «Übrige».",
-  "{0} has its own band in the overview chart again.": "{0} hat in der Grafik der Übersicht wieder ein eigenes Band.",
   "Others": "Übrige",
   "Hide {0} from the chart": "{0} in der Grafik ausblenden",
   "Show {0} in the chart": "{0} in der Grafik einblenden",
@@ -750,5 +745,11 @@
   "Value in {0}": "Wert in {0}",
   "Without what has no price or exchange rate yet.": "Ohne Titel, für die noch kein Kurs oder Devisenkurs vorliegt.",
   "Per year": "Pro Jahr",
-  "Gain or loss in each year, sales included, in percent of the value at the start of the year plus what was bought": "Gewinn oder Verlust pro Jahr, Verkäufe eingerechnet, in Prozent des Werts zu Jahresbeginn plus der Käufe im Jahr"
+  "Gain or loss in each year, sales included, in percent of the value at the start of the year plus what was bought": "Gewinn oder Verlust pro Jahr, Verkäufe eingerechnet, in Prozent des Werts zu Jahresbeginn plus der Käufe im Jahr",
+  "Edit portfolio": "Depot bearbeiten",
+  "e.g. ETFs and shares": "z. B. ETF und Aktien",
+  "Purchases are added on its page.": "Die Käufe erfassen Sie auf seiner Seite.",
+  "For small portfolios: the overview chart adds them up into one “Others” band.": "Für kleine Depots: Die Grafik der Übersicht zählt sie in einem Band «Übrige» zusammen.",
+  "Balance over the last {0} years": "Saldo der letzten {0} Jahre",
+  "Balance since the opening": "Saldo seit der Eröffnung"
 }

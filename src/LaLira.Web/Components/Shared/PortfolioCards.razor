@@ -12,7 +12,7 @@
         {
             <a class="acct-card" href="@($"portfolios/{p.Portfolio.Id}")" @key="p.Portfolio.Id">
                 <div class="acct-top">
-                    <span class="acct-name"><span class="acct-icon"><Icon Name="chart" Size="16" /></span>@p.Portfolio.Name</span>
+                    <span class="acct-name"><span class="acct-icon" style="@Format.ColorVar(p.Portfolio.Color)"><Icon Name="chart" Size="16" /></span>@p.Portfolio.Name</span>
                     <span class="code">@T.Plural(p.HeldCount, "{0} security", "{0} securities")</span>
                 </div>
                 @if (p.Totals.All(t => t.HeldCount == 0))

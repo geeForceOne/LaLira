@@ -1360,7 +1360,7 @@ td.num .holding-ids { font-family: inherit; }
     .page-actions { width: 100%; }
     .page-actions .btn-primary { flex: 1; }
     .total-value { font-size: var(--t-2xl); }
-    .overview-range { display: none; }
+    .overview-range, .page-range { display: none; }
     .balance-strip { padding: 14px 16px; gap: 12px 24px; }
     .balance-main { flex-basis: 100%; }
     .bchart { display: none; }

@@ -61,6 +61,10 @@ public sealed class UserSettings
     // The overview charts' period in months (0: all), the same for every chart there; null: 5 years.
     public int? OverviewMonths { get; set; }
 
+    // The same for every account page's chart, and for every portfolio page's charts; null: 5 years.
+    public int? AccountMonths { get; set; }
+    public int? PortfolioMonths { get; set; }
+
     // The "Others" band is switched off in the overview charts.
     public bool OthersHidden { get; set; }
 }
@@ -168,6 +172,9 @@ public sealed class Portfolio
     public string UserId { get; set; } = "";
     public string Name { get; set; } = "";
     public int SortOrder { get; set; }
+
+    // A key from AccountColors; portfolios from before colors get one on first use.
+    public string? Color { get; set; }
 
     // In the overview charts, like an account's.
     public bool HiddenInTotals { get; set; }

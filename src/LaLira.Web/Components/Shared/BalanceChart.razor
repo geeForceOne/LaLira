@@ -82,14 +82,15 @@
             .Select(b => new[] { b.Name, b.Color, Money.Format(b.Values[i], T.Format, ShowDecimals) })))
         : null;
 
-    <div class="bchart @(stacked ? "stacked" : "") @(Months is null ? "" : "no-range")" style="@FormattableString.Invariant($"--bchart-gutter:{gutter}ch;") @(Color is null ? "" : Format.ColorVar(Color))">
-        @if (Months is null)
+    var buttons = Months is null || MonthsChanged.HasDelegate;
+    <div class="bchart @(stacked ? "stacked" : "") @(buttons ? "" : "no-range")" style="@FormattableString.Invariant($"--bchart-gutter:{gutter}ch;") @(Color is null ? "" : Format.ColorVar(Color))">
+        @if (buttons)
         {
             <div class="bchart-top">
                 <div class="bchart-range" role="group" aria-label="@T["Period"]">
                     @foreach (var (months, label) in Ranges)
                     {
-                        <button type="button" aria-pressed="@(_months == months ? "true" : "false")" @onclick="() => _months = months">@T[label]</button>
+                        <button type="button" aria-pressed="@((Months ?? _months) == months ? "true" : "false")" @onclick="() => PickAsync(months)">@T[label]</button>
                     }
                 </div>
             </div>
@@ -186,12 +187,22 @@
     [Parameter] public IReadOnlyList<long>? Cost { get; set; }
 
     // The period, when the page sets it for all its charts (0: all); then the chart has no buttons.
+    // With MonthsChanged too, the chart keeps its buttons and tells the page what was picked.
     [Parameter] public int? Months { get; set; }
+    [Parameter] public EventCallback<int> MonthsChanged { get; set; }
 
     public static readonly (int Months, string Label)[] Ranges = [(12, "1 year"), (60, "5 years"), (0, "All")];
 
     private int _months = 60;
     private ElementReference _plot;
+
+    private async Task PickAsync(int months)
+    {
+        if (MonthsChanged.HasDelegate)
+            await MonthsChanged.InvokeAsync(months);
+        else
+            _months = months;
+    }
 
     private IReadOnlyList<(DateOnly Month, long Balance)> Visible
     {

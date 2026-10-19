@@ -34,4 +34,12 @@ public static class AccountColors
         var free = All.Select(c => c.Key).FirstOrDefault(k => !taken.Contains(k));
         return free ?? All[taken.Count % All.Count].Key;
     }
+
+    // The same from the palette's end, for portfolios, so the next new account's color stays free.
+    public static string NextFromEnd(IEnumerable<string?> used)
+    {
+        var taken = used.Where(IsKnown).ToList();
+        var free = All.Select(c => c.Key).Reverse().FirstOrDefault(k => !taken.Contains(k));
+        return free ?? All[All.Count - 1 - taken.Count % All.Count].Key;
+    }
 }

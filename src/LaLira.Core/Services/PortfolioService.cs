@@ -6,7 +6,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LaLira.Core.Services;
 
-public sealed record PortfolioInfo(int Id, string Name, int SortOrder, bool InOthers = false, bool HiddenInTotals = false, bool ShowInMainCurrency = false);
+// Color: an AccountColors key.
+public sealed record PortfolioInfo(int Id, string Name, int SortOrder, bool InOthers = false, bool HiddenInTotals = false, bool ShowInMainCurrency = false,
+    string Color = "slate");
+
+// A portfolio's name and how it shows (the Edit portfolio dialog); without a Color it gets the next free one.
+public sealed record PortfolioInput(string Name, string? Color = null, bool InOthers = false);
 
 public sealed record HoldingInput(
     string Name, string? Isin, string? Valor, string Currency, DateOnly BuyDate, decimal Quantity, decimal BuyPrice,
@@ -73,14 +78,17 @@ public sealed record PortfolioHistory(string Currency, IReadOnlyList<PortfolioMo
 public sealed record PortfolioView(PortfolioInfo Portfolio, IReadOnlyList<HoldingView> Holdings, IReadOnlyList<PortfolioTotal> Totals, DateOnly Today,
     IReadOnlyList<PortfolioHistory>? History = null, PortfolioMainTotal? Main = null, PortfolioHistory? MainHistory = null)
 {
+    // Something held in another currency than the main one, so the totals can be shown in it.
+    public bool CanShowMain => Main is not null && Totals.Any(t => t.HeldCount > 0 && t.Currency != Main.Currency);
+
     // Totals once in the main currency instead of per currency, as the portfolio asks for.
-    public bool ShowMain => Main is not null && Portfolio.ShowInMainCurrency && Totals.Count(t => t.HeldCount > 0) > 1;
+    public bool ShowMain => CanShowMain && Portfolio.ShowInMainCurrency;
 }
 
 public sealed record PortfolioCard(PortfolioInfo Portfolio, IReadOnlyList<PortfolioTotal> Totals, int HeldCount, PortfolioMainTotal? Main = null)
 {
     // One line in the main currency instead of one per currency, as the portfolio asks for.
-    public bool ShowMain => Main is not null && Portfolio.ShowInMainCurrency && Totals.Count(t => t.HeldCount > 0) > 1;
+    public bool ShowMain => Main is not null && Portfolio.ShowInMainCurrency && Totals.Any(t => t.HeldCount > 0 && t.Currency != Main.Currency);
 }
 
 // Portfolios and their holdings. Every call is scoped to the person who owns them.
@@ -89,15 +97,17 @@ public sealed class PortfolioService(IDbContextFactory<AppDbContext> dbFactory, 
     public async Task<IReadOnlyList<PortfolioInfo>> ListAsync(string userId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        return await db.Portfolios.AsNoTracking().Where(p => p.UserId == userId)
-            .OrderBy(p => p.SortOrder).ThenBy(p => p.Name)
-            .Select(p => new PortfolioInfo(p.Id, p.Name, p.SortOrder, p.InOthers, p.HiddenInTotals, p.ShowInMainCurrency)).ToListAsync(ct);
+        await EnsureColorsAsync(db, userId, ct);
+        var list = await db.Portfolios.AsNoTracking().Where(p => p.UserId == userId)
+            .OrderBy(p => p.SortOrder).ThenBy(p => p.Name).ToListAsync(ct);
+        return list.Select(Info).ToList();
     }
 
     // Every portfolio with its totals, for the overview.
     public async Task<IReadOnlyList<PortfolioCard>> CardsAsync(string userId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
+        await EnsureColorsAsync(db, userId, ct);
         var portfolios = await db.Portfolios.AsNoTracking().Where(p => p.UserId == userId)
             .OrderBy(p => p.SortOrder).ThenBy(p => p.Name).Include(p => p.Holdings).ToListAsync(ct);
         var prices = await PricesAsync(db, userId, ct);
@@ -113,6 +123,7 @@ public sealed class PortfolioService(IDbContextFactory<AppDbContext> dbFactory, 
     public async Task<PortfolioView> GetAsync(string userId, int portfolioId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
+        await EnsureColorsAsync(db, userId, ct);
         var p = await db.Portfolios.AsNoTracking().Include(x => x.Holdings)
             .FirstOrDefaultAsync(x => x.Id == portfolioId && x.UserId == userId, ct)
             ?? throw new NotFoundException("That portfolio no longer exists.");
@@ -153,25 +164,67 @@ public sealed class PortfolioService(IDbContextFactory<AppDbContext> dbFactory, 
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<PortfolioInfo> CreateAsync(string userId, string name, CancellationToken ct = default)
+    public Task<PortfolioInfo> CreateAsync(string userId, string name, CancellationToken ct = default) =>
+        CreateAsync(userId, new PortfolioInput(name), ct);
+
+    public async Task<PortfolioInfo> CreateAsync(string userId, PortfolioInput input, CancellationToken ct = default)
     {
-        name = CleanName(name);
+        var name = CleanName(input.Name);
         await using var db = await dbFactory.CreateDbContextAsync(ct);
+        await EnsureColorsAsync(db, userId, ct);
         var order = await db.Portfolios.Where(p => p.UserId == userId).Select(p => (int?)p.SortOrder).MaxAsync(ct) ?? 0;
-        var p = new Portfolio { UserId = userId, Name = name, SortOrder = order + 1 };
+        var p = new Portfolio
+        {
+            UserId = userId, Name = name, SortOrder = order + 1, InOthers = input.InOthers,
+            Color = AccountColors.IsKnown(input.Color) ? input.Color : await NextColorAsync(db, userId, ct),
+        };
         db.Portfolios.Add(p);
         await db.SaveChangesAsync(ct);
         return Info(p);
     }
 
-    public async Task RenameAsync(string userId, int portfolioId, string name, CancellationToken ct = default)
+    // Name, color and "Others" (the Edit portfolio dialog).
+    public async Task UpdateAsync(string userId, int portfolioId, PortfolioInput input, CancellationToken ct = default)
     {
-        name = CleanName(name);
+        var name = CleanName(input.Name);
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var changed = await db.Portfolios.Where(p => p.Id == portfolioId && p.UserId == userId)
-            .ExecuteUpdateAsync(s => s.SetProperty(p => p.Name, name), ct);
-        if (changed == 0)
-            throw new NotFoundException("That portfolio no longer exists.");
+        var p = await db.Portfolios.FirstOrDefaultAsync(x => x.Id == portfolioId && x.UserId == userId, ct)
+                ?? throw new NotFoundException("That portfolio no longer exists.");
+        p.Name = name;
+        p.Color = AccountColors.IsKnown(input.Color) ? input.Color : p.Color;
+        p.InOthers = input.InOthers;
+        await db.SaveChangesAsync(ct);
+    }
+
+    // The color a new portfolio starts with: the next one no account or portfolio uses yet.
+    public async Task<string> NextColorAsync(string userId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        await EnsureColorsAsync(db, userId, ct);
+        return await NextColorAsync(db, userId, ct);
+    }
+
+    private static async Task<string> NextColorAsync(AppDbContext db, string userId, CancellationToken ct)
+    {
+        var used = await db.Accounts.Where(a => a.UserId == userId).Select(a => a.Color).ToListAsync(ct);
+        used.AddRange(await db.Portfolios.Where(p => p.UserId == userId).Select(p => p.Color).ToListAsync(ct));
+        return AccountColors.NextFromEnd(used);
+    }
+
+    // Portfolios from before colors keep the one the overview chart gave them: in their order,
+    // those with purchases first, each the next color from the palette's end that no account and
+    // no earlier portfolio uses.
+    private static async Task EnsureColorsAsync(AppDbContext db, string userId, CancellationToken ct)
+    {
+        if (!await db.Portfolios.AnyAsync(p => p.UserId == userId && p.Color == null, ct))
+            return;
+        var used = await db.Accounts.Where(a => a.UserId == userId).Select(a => a.Color).ToListAsync(ct);
+        var all = await db.Portfolios.Where(p => p.UserId == userId)
+            .OrderByDescending(p => p.Holdings.Any()).ThenBy(p => p.SortOrder).ThenBy(p => p.Name).ToListAsync(ct);
+        used.AddRange(all.Where(p => AccountColors.IsKnown(p.Color)).Select(p => p.Color));
+        foreach (var p in all.Where(p => !AccountColors.IsKnown(p.Color)))
+            used.Add(p.Color = AccountColors.NextFromEnd(used));
+        await db.SaveChangesAsync(ct);
     }
 
     // Deletes the portfolio with all its rows.
@@ -454,5 +507,6 @@ public sealed class PortfolioService(IDbContextFactory<AppDbContext> dbFactory, 
             h.SellDate, h.SellPrice, price?.Price, price?.PriceDate, h.Ticker, listing?.Ticker);
     }
 
-    private static PortfolioInfo Info(Portfolio p) => new(p.Id, p.Name, p.SortOrder, p.InOthers, p.HiddenInTotals, p.ShowInMainCurrency);
+    private static PortfolioInfo Info(Portfolio p) =>
+        new(p.Id, p.Name, p.SortOrder, p.InOthers, p.HiddenInTotals, p.ShowInMainCurrency, p.Color ?? AccountColors.All[^1].Key);
 }

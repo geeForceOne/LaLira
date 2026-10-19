@@ -154,7 +154,7 @@ else
                             </div>
                             <div class="acct-mid">
                                 <div class="acct-balance num @(c.BalanceToday < 0 ? "neg" : "")">@Format.Money(c.BalanceToday, c.Account)</div>
-                                <Sparkline Values="c.MonthEndBalances" Color="@c.Account.Color" Label="@T["Balance over the last 12 months"]" />
+                                <Sparkline Values="InPeriod(c.MonthEndBalances)" Color="@c.Account.Color" Label="@SparklineLabel" />
                             </div>
                             <div class="acct-flow">
                                 <span><span class="flow-label">@T["In"]</span> <span class="num">@Format.Money(c.MonthIn, c.Account)</span></span>
@@ -214,6 +214,7 @@ else
 }
 
 <AccountDialog @ref="_accountDialog" />
+<PortfolioDialog @ref="_portfolioDialog" />
 
 @code {
     private OverviewView? _view;
@@ -223,6 +224,7 @@ else
     private IReadOnlyList<UpcomingBooking> _upcoming = [];
     private IReadOnlyList<PortfolioCard> _portfolios = [];
     private AccountDialog _accountDialog = default!;
+    private PortfolioDialog _portfolioDialog = default!;
     private int _months = OverviewService.DefaultMonths;
 
     // The bands switched off from a legend, by key; changed here first so a click shows at once.
@@ -267,14 +269,26 @@ else
         _portfolios = await Portfolios.CardsAsync(userId, PageToken);
     }
 
-    // A name is all a portfolio needs; the purchases are added on its page.
+    // A name and a color are all a portfolio needs; the purchases are added on its page.
     private async Task NewPortfolioAsync()
     {
-        var name = await Ui.Prompt.AskAsync(T["New portfolio"], T["Name"], "", T["Create portfolio"], hint: T["For example “ETFs and shares”. Purchases are added on its page."]);
-        if (name is null) return;
         var userId = await UserIdAsync();
+        var color = await Portfolios.NextColorAsync(userId, PageToken);
+        var withOthers = (await Settings.GetAsync(userId, PageToken)).MainCurrency is not null;
         PortfolioInfo? created = null;
-        if (!await RunAsync(async () => created = await Portfolios.CreateAsync(userId, name, PageToken)) || created is null)
+        var ok = await _portfolioDialog.AskAsync(null, defaultColor: color, withOthers: withOthers, save: async input =>
+        {
+            try
+            {
+                created = await Portfolios.CreateAsync(userId, input, PageToken);
+                return null;
+            }
+            catch (InputException ex)
+            {
+                return ErrorText(ex);
+            }
+        });
+        if (!ok || created is null)
             return;
         await Ui.RefreshAccountsAsync();
         Nav.NavigateTo($"portfolios/{created.Id}");
@@ -358,6 +372,17 @@ else
         var userId = await UserIdAsync();
         await RunAsync(() => Overview.SetHiddenAsync(userId, key, hide, PageToken));
     }
+
+    // The cards' small charts show the same period as the big ones.
+    private IReadOnlyList<long> InPeriod(IReadOnlyList<long> values) =>
+        _months == 0 || values.Count <= _months ? values : values.Skip(values.Count - _months).ToList();
+
+    private string SparklineLabel => _months switch
+    {
+        0 => T["Balance since the opening"],
+        12 => T["Balance over the last 12 months"],
+        _ => T["Balance over the last {0} years", _months / 12],
+    };
 
     private async Task SetMonthsAsync(int months)
     {

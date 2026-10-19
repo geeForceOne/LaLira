@@ -1,4 +1,5 @@
 using System.Globalization;
+using LaLira.Core;
 using LaLira.Core.Data;
 using LaLira.Core.Email;
 using LaLira.Core.Localization;
@@ -250,6 +251,83 @@ public sealed class ColorsRatesAlertsTests : IDisposable
 
         await _portfolios.SetOptionsAsync("u1", p.Id, inOthers: true);
         Assert.Equal(["Others"], (await _overview.GetAsync("u1")).Main!.Bands.Select(b => b.Name));
+    }
+
+    [Fact]
+    public async Task PortfoliosTakeColorsFromThePalettesEnd()
+    {
+        await AccountAsync("A", "CHF", 0, new DateOnly(2026, 1, 1), "slate");
+        await using (var db = _factory.CreateDbContext())
+        {
+            // From before colors: the one with purchases came first in the overview chart, so it keeps the first color.
+            db.Portfolios.Add(new Portfolio { UserId = "u1", Name = "Empty", SortOrder = 1 });
+            db.Portfolios.Add(new Portfolio
+            {
+                UserId = "u1", Name = "Shares", SortOrder = 2,
+                Holdings = [new Holding { Name = "UBS", Isin = "CH0244767585", Currency = "CHF", BuyDate = new DateOnly(2026, 1, 5), Quantity = 1, BuyPrice = 25m }],
+            });
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(["lime", "brown"], (await _portfolios.ListAsync("u1")).Select(p => p.Color));
+        Assert.Equal("cyan", await _portfolios.NextColorAsync("u1"));
+        Assert.Equal("cyan", (await _portfolios.CreateAsync("u1", "New")).Color);
+        var picked = await _portfolios.CreateAsync("u1", new PortfolioInput("Picked", "gold", InOthers: true));
+        Assert.Equal("gold", picked.Color);
+        Assert.True(picked.InOthers);
+
+        await _portfolios.UpdateAsync("u1", picked.Id, new PortfolioInput(" Renamed ", "pink"));
+        var changed = (await _portfolios.ListAsync("u1")).Single(p => p.Id == picked.Id);
+        Assert.Equal(("Renamed", "pink", false), (changed.Name, changed.Color, changed.InOthers));
+        await Assert.ThrowsAsync<InputException>(() => _portfolios.UpdateAsync("u1", picked.Id, new PortfolioInput(" ")));
+        await Assert.ThrowsAsync<NotFoundException>(() => _portfolios.UpdateAsync("u2", picked.Id, new PortfolioInput("Mine")));
+
+        // The overview's main total draws it in its color.
+        await _settings.SetMainCurrencyAsync("u1", "CHF");
+        await _rates.UpdateDueAsync();
+        var band = (await _overview.GetAsync("u1")).Main!.Bands.Single(b => b.Name == "Shares");
+        Assert.Equal("brown", band.Color);
+    }
+
+    [Fact]
+    public async Task ChartPeriodsAreRememberedForAccountAndPortfolioPages()
+    {
+        var s = await _settings.GetAsync("u1");
+        Assert.Equal((60, 60), (s.AccountMonths, s.PortfolioMonths));
+        await _settings.SetChartMonthsAsync("u1", ChartPage.Account, 12);
+        await _settings.SetChartMonthsAsync("u1", ChartPage.Portfolio, 0);
+        s = await _settings.GetAsync("u1");
+        Assert.Equal((12, 0), (s.AccountMonths, s.PortfolioMonths));
+        await _settings.SetChartMonthsAsync("u1", ChartPage.Account, 7);
+        Assert.Equal(60, (await _settings.GetAsync("u1")).AccountMonths);
+    }
+
+    [Fact]
+    public async Task APortfolioInOneForeignCurrencyCanShowInTheMainCurrency()
+    {
+        await _settings.SetMainCurrencyAsync("u1", "CHF");
+        var eur = await _portfolios.CreateAsync("u1", "EUR");
+        await _portfolios.AddHoldingAsync("u1", eur.Id, new HoldingInput("SAP", "DE0007164600", null, "EUR", new DateOnly(2026, 1, 5), 10, 100m));
+        var chf = await _portfolios.CreateAsync("u1", "CHF");
+        await _portfolios.AddHoldingAsync("u1", chf.Id, new HoldingInput("Nestlé", "CH0038863350", null, "CHF", new DateOnly(2026, 1, 5), 10, 100m));
+        await _rates.UpdateDueAsync();
+
+        Assert.True((await _portfolios.GetAsync("u1", eur.Id)).CanShowMain);
+        Assert.False((await _portfolios.GetAsync("u1", chf.Id)).CanShowMain);
+        await _portfolios.SetOptionsAsync("u1", eur.Id, showInMainCurrency: true);
+        await _portfolios.SetOptionsAsync("u1", chf.Id, showInMainCurrency: true);
+        Assert.True((await _portfolios.GetAsync("u1", eur.Id)).ShowMain);
+        Assert.False((await _portfolios.GetAsync("u1", chf.Id)).ShowMain);
+        Assert.Equal([true, false], (await _portfolios.CardsAsync("u1")).Select(c => c.ShowMain));
+    }
+
+    [Fact]
+    public async Task AccountCardsHaveEveryMonthSinceTheOpening()
+    {
+        await AccountAsync("A", "CHF", 1000, new DateOnly(2020, 1, 15));
+        var card = Assert.Single((await _overview.GetAsync("u1")).Accounts);
+        // January 2020 to October 2026.
+        Assert.Equal(6 * 12 + 10, card.MonthEndBalances.Count);
+        Assert.All(card.MonthEndBalances, b => Assert.Equal(1000, b));
     }
 
     [Fact]

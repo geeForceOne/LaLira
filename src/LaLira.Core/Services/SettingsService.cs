@@ -10,7 +10,10 @@ namespace LaLira.Core.Services;
 
 public sealed record SettingsView(
     Theme Theme, string Language, string RegionFormat, string TimeZone, bool HasHomepageToken, DateTime? HomepageTokenCreatedAt,
-    string? MainCurrency = null);
+    string? MainCurrency = null, int AccountMonths = OverviewService.DefaultMonths, int PortfolioMonths = OverviewService.DefaultMonths);
+
+// The pages whose chart period is remembered, each the same for all accounts or all portfolios.
+public enum ChartPage { Account, Portfolio }
 
 public sealed record SettingsUpdate(Theme Theme, string Language, string RegionFormat, string TimeZone);
 
@@ -104,6 +107,23 @@ public sealed class SettingsService(IDbContextFactory<AppDbContext> dbFactory)
         _cache.TryRemove(userId, out _);
     }
 
+    // The chart period last picked on an account or portfolio page (months, 0: all).
+    public async Task SetChartMonthsAsync(string userId, ChartPage page, int months, CancellationToken ct = default)
+    {
+        months = Period(months);
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var s = await LoadOrAddAsync(db, userId, ct);
+        if (page == ChartPage.Account)
+            s.AccountMonths = months;
+        else
+            s.PortfolioMonths = months;
+        await db.SaveChangesAsync(ct);
+        _cache.TryRemove(userId, out _);
+    }
+
+    private static int Period(int? months) =>
+        months is { } m && OverviewService.Periods.Contains(m) ? m : OverviewService.DefaultMonths;
+
     // A new homepage widget token, replacing any earlier one. Only its hash is stored, so this is
     // the one time it can be shown.
     public async Task<string> CreateHomepageTokenAsync(string userId, CancellationToken ct = default)
@@ -153,5 +173,5 @@ public sealed class SettingsService(IDbContextFactory<AppDbContext> dbFactory)
 
     private static SettingsView View(UserSettings s) =>
         new(s.Theme, L.Normalize(s.Language), s.RegionFormat, s.TimeZone, s.HomepageTokenHash is not null, s.HomepageTokenCreatedAt,
-            s.MainCurrency);
+            s.MainCurrency, Period(s.AccountMonths), Period(s.PortfolioMonths));
 }

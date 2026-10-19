@@ -71,6 +71,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         {
             e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.Property(x => x.Name).HasMaxLength(Portfolio.MaxNameLength);
+            e.Property(x => x.Color).HasMaxLength(16);
             e.HasIndex(x => x.UserId);
         });
 

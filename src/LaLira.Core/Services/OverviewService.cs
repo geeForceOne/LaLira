@@ -6,7 +6,8 @@ using Microsoft.EntityFrameworkCore;
 namespace LaLira.Core.Services;
 
 // One account on the overview: balance today, this month's money in and out, and its balance at
-// the end of each of the last months (oldest first) for the small chart.
+// the end of every month since its opening (oldest first) for the small chart, which shows the
+// overview's period of it.
 public sealed record AccountCard(
     AccountInfo Account, long BalanceToday, long MonthIn, long MonthOut, int UpcomingCount, IReadOnlyList<long> MonthEndBalances);
 
@@ -39,7 +40,6 @@ public sealed record MonthFlow(string Currency, long In, long Out);
 public sealed class OverviewService(
     IDbContextFactory<AppDbContext> dbFactory, AccountService accounts, UserClock clock, PortfolioService portfolios, ExchangeRateService rates)
 {
-    public const int ChartMonths = 12;
     public const int DefaultMonths = 60;
     public const string OthersKey = "others";
 
@@ -58,18 +58,14 @@ public sealed class OverviewService(
         var positions = await db.Positions.AsNoTracking().Where(p => ids.Contains(p.AccountId))
             .Select(p => new { p.AccountId, p.Date, p.Amount }).ToListAsync(ct);
         var byAccount = positions.ToLookup(p => p.AccountId, p => (p.Date, p.Amount));
+        var monthEnds = list.ToDictionary(a => a.Id, a => LedgerBuilder.MonthEnds(a.OpeningBalance, a.OpeningDate,
+            byAccount[a.Id].Select(p => new LedgerPosition(0, p.Date, p.Amount, "", null)), today));
 
         var cards = list.Select(a =>
         {
             var mine = byAccount[a.Id].ToList();
             var monthMoves = mine.Where(p => p.Date >= monthStart && p.Date <= today).ToList();
-            var chart = Enumerable.Range(0, ChartMonths)
-                .Select(i => monthStart.AddMonths(i - ChartMonths + 1))
-                .Select(m => m.AddMonths(1).AddDays(-1))
-                .Select(end => end > today ? today : end)
-                .Where(end => end >= a.OpeningDate || end.Year == a.OpeningDate.Year && end.Month == a.OpeningDate.Month)
-                .Select(end => LedgerBuilder.BalanceAt(a.OpeningBalance, a.OpeningDate, mine, end))
-                .ToList();
+            var chart = monthEnds[a.Id].Select(m => m.Balance).ToList();
             return new AccountCard(a,
                 LedgerBuilder.BalanceAt(a.OpeningBalance, a.OpeningDate, mine, today),
                 monthMoves.Where(p => p.Amount > 0).Sum(p => p.Amount),
@@ -82,8 +78,6 @@ public sealed class OverviewService(
             .Select(s => new { s.OverviewMonths, s.OthersHidden }).FirstOrDefaultAsync(ct);
         var othersHidden = prefs?.OthersHidden ?? false;
 
-        var monthEnds = cards.ToDictionary(c => c.Account.Id, c => LedgerBuilder.MonthEnds(c.Account.OpeningBalance, c.Account.OpeningDate,
-            byAccount[c.Account.Id].Select(p => new LedgerPosition(0, p.Date, p.Amount, "", null)), today));
         var totals = cards.GroupBy(c => c.Account.Currency)
             .Select(g =>
             {
@@ -134,7 +128,6 @@ public sealed class OverviewService(
 
         var accountParts = converted.Select(c => Part(c.Account,
             monthEnds[c.Account.Id].ToDictionary(m => m.Month, m => Convert(m.Balance, c.Account.Currency, m.Month)))).ToList();
-        var used = cards.Select(c => (string?)c.Account.Color).ToList();
         var portfolioParts = new List<BandPart>();
         foreach (var p in withValues)
         {
@@ -142,10 +135,7 @@ public sealed class OverviewService(
             foreach (var h in histories[p.Id].Where(h => table.Has(h.Currency)))
                 foreach (var m in h.Months)
                     values[m.Month] = values.GetValueOrDefault(m.Month) + Convert(m.Value, h.Currency, m.Month);
-            // From the end of the palette, so the next new account's color stays free.
-            var color = AccountColors.All.Select(c => c.Key).Reverse().FirstOrDefault(k => !used.Contains(k)) ?? AccountColors.All[^1].Key;
-            used.Add(color);
-            portfolioParts.Add(new BandPart($"p{p.Id}", p.Name, color, p.InOthers, p.HiddenInTotals, values));
+            portfolioParts.Add(new BandPart($"p{p.Id}", p.Name, p.Color, p.InOthers, p.HiddenInTotals, values));
         }
 
         var bands = Bands(accountParts.Concat(portfolioParts), months, othersHidden);
