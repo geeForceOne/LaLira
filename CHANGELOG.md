@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.7.0 - 2026-10-19
+
+### Improved
+- Account and portfolio colors: 16 colors instead of 12, chosen so every account stands out clearly in the charts, in both themes. Existing accounts keep their color name; Cyan is now called Sky.
+
 ## 1.6.0 - 2026-10-19
 
 ### New
