@@ -1,5 +1,15 @@
 # Release notes
 
+## 1.6.0 - 2026-10-19
+
+### New
+- Portfolio colors: each portfolio has its own color for its icon, its chart and its band on the overview. Set it in the new "Edit portfolio" dialog, which also holds the name and the "Others" switch.
+
+### Improved
+- "Show in CHF" (your main currency) is now also offered for a portfolio held in a single other currency.
+- The 1 year / 5 years / All choice is remembered on account and portfolio pages, and a portfolio page has one switch for all its charts.
+- The small charts on the account cards follow the overview's 1 year / 5 years / All switch.
+
 ## 1.5.1 - 2026-10-18
 
 ### Fixed
