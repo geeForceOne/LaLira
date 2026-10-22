@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.7.1 - 2026-10-22
+
+### Improved
+- Minor fixes and updates.
+
 ## 1.7.0 - 2026-10-19
 
 ### Improved
