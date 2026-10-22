@@ -402,7 +402,7 @@ else
             <span class="flow-label">@T["Per year"]</span>
             @foreach (var y in years)
             {
-                <span class="num">@y.Year <span class="@(y.Gain < 0 ? "neg" : "")">@Format.Percent(y.Percent!.Value)</span></span>
+                <span class="num">@y.Year <span class="@(y.Gain < 0 ? "neg" : "")">@Format.Percent(y.Percent!.Value, 1)</span></span>
             }
         </div>
     };

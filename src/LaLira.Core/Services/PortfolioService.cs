@@ -50,8 +50,9 @@ public sealed record PortfolioMainTotal(string Currency, long Value, long Cost, 
     public decimal? UnrealizedPercent => PricedCost != 0 ? Math.Round(Unrealized * 100m / PricedCost, 2) : null;
 }
 
-// What was held at the end of a month, at that month's close, and what it had cost.
-public sealed record PortfolioMonth(DateOnly Month, long Value, long Cost);
+// What was held at the end of a month, at that month's close, and what it had cost. Priced: a
+// held row had a close then (or nothing was held), so the value is more than just the cost.
+public sealed record PortfolioMonth(DateOnly Month, long Value, long Cost, bool Priced);
 
 // What was bought in a year (at cost) and what sales gained or lost.
 public sealed record YearFlow(int Year, long Bought, long Realized);
@@ -63,8 +64,9 @@ public sealed record YearGain(int Year, long Gain, decimal? Percent);
 public sealed record PortfolioHistory(string Currency, IReadOnlyList<PortfolioMonth> Months, IReadOnlyList<YearFlow> Flows)
 {
     // Each year's gain: the change of the unrealized gain plus what sales realized, in percent of
-    // what was there at the start plus what was bought in the year.
-    public IReadOnlyList<YearGain> Years => Months.GroupBy(m => m.Month.Year).Select(g =>
+    // what was there at the start plus what was bought in the year. Years before the price history
+    // reaches back are left out.
+    public IReadOnlyList<YearGain> Years => Months.GroupBy(m => m.Month.Year).Where(g => g.Any(m => m.Priced)).Select(g =>
     {
         var end = g.Last();
         var start = Months.LastOrDefault(m => m.Month.Year < g.Key);
@@ -428,7 +430,8 @@ public sealed class PortfolioService(IDbContextFactory<AppDbContext> dbFactory, 
         var months = usable.SelectMany(h => h.Months.Select(m => m.Month)).Distinct().Order()
             .Select(month => new PortfolioMonth(month,
                 usable.Sum(h => h.Months.FirstOrDefault(m => m.Month == month) is { } m ? Convert(m.Value, h.Currency, month) : 0),
-                usable.Sum(h => h.Months.FirstOrDefault(m => m.Month == month) is { } m ? Convert(m.Cost, h.Currency, month) : 0)))
+                usable.Sum(h => h.Months.FirstOrDefault(m => m.Month == month) is { } m ? Convert(m.Cost, h.Currency, month) : 0),
+                usable.Any(h => h.Months.FirstOrDefault(m => m.Month == month)?.Priced == true)))
             .ToList();
         // A year's flows at the rate of its last month.
         var flows = usable.SelectMany(h => h.Flows.Select(f => (h.Currency, Flow: f))).GroupBy(x => x.Flow.Year).Select(g =>
@@ -456,14 +459,17 @@ public sealed class PortfolioService(IDbContextFactory<AppDbContext> dbFactory, 
                 var end = m.AddMonths(1).AddDays(-1);
                 if (end > today) end = today;
                 long value = 0, cost = 0;
+                bool held = false, priced = false;
                 foreach (var h in rows.Where(h => h.BuyDate <= end && (h.SellDate is null || h.SellDate > end)))
                 {
-                    var price = m == thisMonth && prices.GetValueOrDefault((h.Isin, h.Currency)) is { } now ? now.Price
-                        : Close(monthPrices.GetValueOrDefault((h.Isin, h.Currency)), m) ?? h.BuyPrice;
-                    value += Decimals.Total(h.Quantity, price);
+                    var close = m == thisMonth && prices.GetValueOrDefault((h.Isin, h.Currency)) is { } now ? now.Price
+                        : Close(monthPrices.GetValueOrDefault((h.Isin, h.Currency)), m);
+                    value += Decimals.Total(h.Quantity, close ?? h.BuyPrice);
                     cost += Decimals.Total(h.Quantity, h.BuyPrice);
+                    held = true;
+                    priced |= close is not null;
                 }
-                months.Add(new PortfolioMonth(m, value, cost));
+                months.Add(new PortfolioMonth(m, value, cost, priced || !held));
             }
             var flows = rows.Select(h => h.BuyDate.Year).Concat(rows.Where(h => h.SellDate is not null).Select(h => h.SellDate!.Value.Year))
                 .Distinct().Order().Select(y => new YearFlow(y,

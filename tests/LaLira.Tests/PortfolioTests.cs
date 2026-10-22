@@ -232,6 +232,24 @@ public sealed class PortfolioTests : IDisposable
     }
 
     [Fact]
+    public async Task YearsBeforeThePriceHistoryAreLeftOut()
+    {
+        // Bought in 2022, but the closes only reach back to November 2025.
+        var p = await _portfolios.CreateAsync("u1", "Depot");
+        await _portfolios.AddHoldingAsync("u1", p.Id, Buy(Nestle, 10, 80m) with { BuyDate = new DateOnly(2022, 5, 1) });
+        await _prices.SetKeyAsync("u1", "demo-key");
+        _source.Quotes.Add(new PriceQuote(Nestle, "CHF", 100m, new DateOnly(2026, 10, 15), "SW", "NESN", true));
+        _source.History["NESN.SW"] = [new(new DateOnly(2025, 11, 1), new DateOnly(2025, 11, 30), 90m)];
+
+        await _prices.RefreshAsync("u1");
+        var h = Assert.Single((await _portfolios.GetAsync("u1", p.Id)).History!);
+        Assert.Equal(2022, h.Months[0].Month.Year);
+        // 2025 is kept and carries the gain since the purchase.
+        Assert.Equal([2025, 2026], h.Years.Select(y => y.Year));
+        Assert.Equal(10000, h.Years[0].Gain);
+    }
+
+    [Fact]
     public async Task HistoryWithThisMonthKeepsTheCurrentClose()
     {
         // EODHD's monthly rows include the current month, which the refresh has just kept too.

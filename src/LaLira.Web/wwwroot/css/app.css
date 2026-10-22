@@ -778,7 +778,8 @@ td.num, th.num, .num.right { text-align: right; }
 .table tr.clickable { cursor: pointer; }
 .table tr.clickable:hover td { background: var(--sheet-2); }
 .table tr.paused td { color: var(--pencil); }
-.table-scroll { overflow-x: auto; }
+/* Positioned, so a visually hidden label in a cell stays inside and doesn't widen the page. */
+.table-scroll { overflow-x: auto; position: relative; }
 .sort-button { padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
 .sort-mark { color: var(--accent); }
 .amount { white-space: nowrap; }
@@ -971,6 +972,14 @@ td.num .holding-ids { font-family: inherit; }
 /* The gain of each year under a portfolio's figures. */
 .year-gains { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 8px; font-size: var(--t-xs); color: var(--ink-soft); }
 .year-gains .flow-label { margin-right: 4px; }
+/* The figures may shrink to the box, so the years wrap instead of being cut off; phones show the
+   last three on one line, under the label. */
+.total.with-chart .total-figures { flex-shrink: 1; min-width: 0; }
+@media (max-width: 700px) {
+    .year-gains { column-gap: 10px; }
+    .year-gains > .flow-label { flex-basis: 100%; }
+    .year-gains > .num:nth-last-child(n+4) { display: none; }
+}
 .portfolio-totals .total.with-chart { grid-column: 1 / -1; }
 .portfolio-totals:has(.with-chart) { grid-template-columns: minmax(0, 1fr); }
 .switch-inline { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: var(--t-sm); cursor: pointer; }

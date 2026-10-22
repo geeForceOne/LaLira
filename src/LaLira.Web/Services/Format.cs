@@ -25,7 +25,7 @@ public static class Format
     public static string DecimalInput(decimal value) => Decimals.FormatForInput(value, C);
 
     // "+12.40%", "−3.10%"
-    public static string Percent(decimal value) => Decimals.FormatPercent(value, C);
+    public static string Percent(decimal value, int decimals = 2) => Decimals.FormatPercent(value, C, decimals);
 
     // The style that gives an element an account's color as --acct (app.css: --c-<key>).
     public static string ColorVar(string color) =>
