@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.7.2 - 2026-10-26
+
+### Improved
+- On phones, a portfolio's form for new purchases sits below the holdings and opens with "Add purchase".
+
 ## 1.7.1 - 2026-10-22
 
 ### Improved
