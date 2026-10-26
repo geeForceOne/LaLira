@@ -629,6 +629,8 @@
   "Clear the sale date to make it a held position again.": "Löschen Sie das Verkaufsdatum, um den Titel wieder in den Bestand zu nehmen.",
   "One row per purchase. Enter adds it; the current price comes from the price service by ISIN.": "Eine Zeile pro Kauf. Enter fügt ihn hinzu; der aktuelle Kurs kommt per ISIN vom Kursdienst.",
   "Nothing held yet. Add a purchase above.": "Noch kein Bestand. Erfassen Sie oben einen Kauf.",
+  "Nothing held yet. Add a purchase below.": "Noch kein Bestand. Erfassen Sie unten einen Kauf.",
+  "Add purchase": "Kauf erfassen",
   "Click to change or sell": "Klicken zum Ändern oder Verkaufen",
   "Closing price of {0}": "Schlusskurs vom {0}",
   "Closing prices from EODHD": "Schlusskurse von EODHD",

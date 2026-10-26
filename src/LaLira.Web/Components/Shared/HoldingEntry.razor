@@ -192,6 +192,12 @@
         _focusPending = AutoFocus;
     }
 
+    // Puts the cursor in the name field, e.g. when a collapsed entry row is opened.
+    public async Task FocusAsync()
+    {
+        try { await _nameInput.FocusAsync(); } catch (JSException) { }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!_focusPending) return;

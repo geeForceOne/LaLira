@@ -889,6 +889,9 @@ td.num, th.num, .num.right { text-align: right; }
     border-radius: var(--r-lg);
 }
 
+/* Opens the collapsed entry row; phones only. */
+.entry-toggle, .show-phone { display: none; }
+
 /* One position in one row: date, description, amount, button; the same order as the list. */
 .entry { display: flex; flex-direction: column; gap: 6px; }
 .entry-fields { display: flex; gap: 8px; align-items: center; }
@@ -1404,6 +1407,14 @@ td.num .holding-ids { font-family: inherit; }
 
     /* Portfolios: name, quantity, value and gain; the purchase date goes under the name. */
     .hide-phone { display: none; }
+    .show-phone { display: block; }
+    .portfolio-lists { display: flex; flex-direction: column; }
+    .portfolio-entry { order: 1; }
+    .sold-section { order: 2; }
+    .portfolio-entry .entry-toggle { display: flex; width: 100%; justify-content: center; }
+    .portfolio-entry.open .entry-toggle { margin-bottom: 12px; }
+    .portfolio-entry:not(.open) { padding: 0; border: 0; background: none; }
+    .portfolio-entry:not(.open) .entry-body { display: none; }
     .holdings .col-date { display: none; }
     .holdings th, .holdings td { padding-left: 8px; padding-right: 8px; }
     .holdings td .code, .holding-isin-line { display: none; }

@@ -192,9 +192,16 @@ else
         </section>
     }
 
-    <section class="entry-bar" aria-label="@T["New purchase"]">
-        <HoldingEntry Today="_view.Today" DefaultCurrency="@DefaultCurrency" OnSave="AddAsync" AutoFocus="_view.Holdings.Count == 0"
-                      OnSearch="@(_prices.Key == Core.Security.SecretStatus.Set ? SearchAsync : null)" />
+    @* On phones the entry row goes below the held list and starts collapsed behind a button. *@
+    <div class="portfolio-lists">
+    <section class="entry-bar portfolio-entry @(_entryOpen ? "open" : "")" aria-label="@T["New purchase"]">
+        <button type="button" class="btn btn-secondary entry-toggle" aria-expanded="@(_entryOpen ? "true" : "false")" @onclick="ToggleEntry">
+            <Icon Name="plus" Size="16" /> @T["Add purchase"]
+        </button>
+        <div class="entry-body">
+            <HoldingEntry @ref="_entry" Today="_view.Today" DefaultCurrency="@DefaultCurrency" OnSave="AddAsync" AutoFocus="_view.Holdings.Count == 0"
+                          OnSearch="@(_prices.Key == Core.Security.SecretStatus.Set ? SearchAsync : null)" />
+        </div>
     </section>
 
     <section class="section ledger-section">
@@ -203,7 +210,8 @@ else
         </div>
         @if (held.Count == 0)
         {
-            <p class="muted">@T["Nothing held yet. Add a purchase above."]</p>
+            <p class="muted hide-phone">@T["Nothing held yet. Add a purchase above."]</p>
+            <p class="muted show-phone">@T["Nothing held yet. Add a purchase below."]</p>
         }
         else
         {
@@ -308,7 +316,7 @@ else
 
     @if (sold.Count > 0)
     {
-        <section class="section ledger-section">
+        <section class="section ledger-section sold-section">
             <div class="section-head">
                 <h2>@T["Sold"]<span class="count">@sold.Count</span></h2>
             </div>
@@ -370,6 +378,7 @@ else
             </div>
         </section>
     }
+    </div>
 }
 
 <PortfolioDialog @ref="_dialog" />
@@ -389,6 +398,24 @@ else
     private string _timeZone = "Europe/Zurich";
     private int _months = OverviewService.DefaultMonths;
     private PortfolioDialog _dialog = default!;
+    private HoldingEntry? _entry;
+
+    // Only matters on phones, where the entry row is collapsed until opened.
+    private bool _entryOpen;
+    private bool _focusEntry;
+
+    private void ToggleEntry()
+    {
+        _entryOpen = !_entryOpen;
+        _focusEntry = _entryOpen;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusEntry || _entry is null) return;
+        _focusEntry = false;
+        await _entry.FocusAsync();
+    }
 
     // A chart is drawn for the main-currency total or for a currency's.
     private bool HasCharts => _view is { } v && (v.ShowMain ? v.MainHistory?.Months.Count > 1 : v.History?.Any(h => h.Months.Count > 1) == true);
@@ -439,6 +466,7 @@ else
         _view = null;
         _missing = false;
         _editing = _selling = _alertsFor = null;
+        _entryOpen = false;
         await LoadAsync();
     }
 
