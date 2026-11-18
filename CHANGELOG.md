@@ -1,5 +1,13 @@
 # Release notes
 
+## 1.7.3 - 2026-11-18
+
+### Improved
+- On phones, the overview's 1 year / 5 years / All switch now sets the period of the account cards' small charts.
+
+### Fixed
+- On phones, the ⋯ menu on the account and Users pages opened partly off-screen.
+
 ## 1.7.2 - 2026-10-26
 
 ### Improved
