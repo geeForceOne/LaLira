@@ -1379,8 +1379,12 @@ td.num .holding-ids { font-family: inherit; }
     .page-head { margin-bottom: 18px; align-items: flex-start; }
     .page-actions { width: 100%; }
     .page-actions .btn-primary { flex: 1; }
+    /* The menu opens leftward from the button's right edge, so the button has to sit on the right. */
+    .page-actions .row-menu { margin-left: auto; }
     .total-value { font-size: var(--t-2xl); }
-    .overview-range, .page-range { display: none; }
+    /* Phones show no charts, but the overview's switch still sets the account cards' sparklines. */
+    .page-range { display: none; }
+    .overview-range .bchart-range button { padding: 6px 12px; }
     .balance-strip { padding: 14px 16px; gap: 12px 24px; }
     .balance-main { flex-basis: 100%; }
     .bchart { display: none; }
@@ -1440,7 +1444,10 @@ td.num .holding-ids { font-family: inherit; }
         font-size: var(--t-xs);
     }
     .users-table td.num, .rules-table td.num { text-align: left; }
-    .users-actions { grid-row: 1; grid-column: 2; }
+    .users-actions { grid-row: 1; grid-column: 2; justify-self: end; }
+    /* Stacked rows don't scroll sideways, and the scroll box would cut off the row's menu. */
+    .table-scroll:has(.users-table) { overflow: visible; }
+    .users-name, .users-email { overflow-wrap: anywhere; }
 
     .auth { grid-template-columns: 1fr; }
     .auth-side { padding: 28px var(--gutter) 20px; gap: 12px; background: var(--sheet); border-right: 0; border-bottom: 1px solid var(--rule); }

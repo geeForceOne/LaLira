@@ -24,7 +24,7 @@
     }
     else if (_view is not null && (_view.Main?.MonthEnds.Count > 1 || _view.Totals.Any(t => t.MonthEnds.Count > 1)))
     {
-        @* One period for every chart on the page, remembered; charts are hidden on phones, so is this. *@
+        @* One period for every chart on the page, remembered. Phones hide the charts but keep this, since it also sets the cards' sparklines. *@
         <div class="page-actions overview-range">
             <div class="bchart-range" role="group" aria-label="@T["Period"]">
                 @foreach (var (months, label) in BalanceChart.Ranges)
